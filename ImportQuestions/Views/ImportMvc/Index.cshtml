@@ -1,0 +1,22 @@
+@{
+    ViewData["Title"] = "Импорт кардани Саволҳо";
+}
+
+<div class="card shadow-lg p-4 mx-auto" style="max-width: 500px; margin-top: 50px;">
+    <h2 class="text-center mb-3">📂 Импорт кардани Саволҳо</h2>
+    <p class="text-center text-muted">Файли <strong>.docx</strong>-ро интихоб ва боргузорӣ кунед.</p>
+
+    @if (TempData["Message"] != null)
+    {
+        <div class="alert alert-info text-center">
+            @TempData["Message"]
+        </div>
+    }
+
+    <form asp-controller="ImportMvc" asp-action="Upload" method="post" enctype="multipart/form-data">
+        <div class="mb-3">
+            <input type="file" name="file" class="form-control" accept=".docx" required />
+        </div>
+        <button type="submit" class="btn btn-primary w-100">📤 Боргузорӣ</button>
+    </form>
+</div>
