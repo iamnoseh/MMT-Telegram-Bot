@@ -43,14 +43,13 @@ public class QuestionService(DataContext _context) : IQuestionService
     public async Task<List<GetOptionDTO>> GetOptionsAsync()
     {
         var options = await _context.Questions
-                                    .Select(x => x.Option)
                                     .Select(e => new GetOptionDTO
                                     {
-                                        FirstVariant = e.FirstVariant,
-                                        SecondVariant = e.SecondVariant,
-                                        ThirdVariant = e.ThirdVariant,
-                                        FourthVariant = e.FourthVariant,
-                                        Answer = e.Answer
+                                        FirstVariant = e.Option.FirstVariant,
+                                        SecondVariant = e.Option.SecondVariant,
+                                        ThirdVariant = e.Option.ThirdVariant,
+                                        FourthVariant = e.Option.FourthVariant,
+                                        Answer = e.Option.Answer
                                     }).ToListAsync();
         return options;
     }
