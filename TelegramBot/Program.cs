@@ -59,11 +59,11 @@ internal class TelegramBotHelper
     private readonly TelegramBotClient _client;
     private readonly IServiceProvider _serviceProvider;
 
- //from questions
+//from questions
     private readonly Dictionary<long, int> _userScores = new();
     private readonly Dictionary<long, int> _userQuestions = new();
     private const int MaxQuestions = 10;
-    //from user
+//from user
     private readonly Dictionary<long, RegistrationInfo> _pendingRegistrations = new();
 
     public TelegramBotHelper(
@@ -117,15 +117,13 @@ internal class TelegramBotHelper
             var chatId = update.Message.Chat.Id;
             var text = update.Message.Text;
             Console.WriteLine($"Received message from Chat ID: {chatId}");
-
-            // Агар хабар контакти телефон бошад:
+            
             if (update.Message.Contact != null)
             {
                 await HandleContactRegistration(update.Message);
                 return;
             }
-
-            // Агар корбар дар равандҳои сабт бошад:
+            
             if (_pendingRegistrations.ContainsKey(chatId))
             {
                 var reg = _pendingRegistrations[chatId];
