@@ -1,23 +1,18 @@
-# Қадами 1: Насб кардани .NET 9 (SDK) барои сохтани барнома
-FROM mcr.microsoft.com/dotnet/nightly:9.0-sdk AS build
-
-# Директорияи корӣ
+# Қадами 1: Истифода аз тасвири асосии ASP.NET 9.0
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
 WORKDIR /app
+EXPOSE 80
 
-# Нусха бардории ҳама файлҳо ба контейнер
+# Қадами 2: Сохтани барнома бо тасвири SDK
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+COPY ["TelegramBotApp.csproj", "./"]
+RUN dotnet restore "./TelegramBot.csproj"
 COPY . .
+RUN dotnet publish "TelegramBot.csproj" -c Release -o /app/publish
 
-# Барпо кардани (build) лоиҳа
-RUN dotnet publish -c Release -o out
-
-# Қадами 2: Насб кардани Runtime-и .NET 9
-FROM mcr.microsoft.com/dotnet/nightly:9.0-runtime AS runtime
-
-# Гузаштан ба директорияи корӣ
+# Қадами 3: Омода кардани тасвири ниҳоӣ
+FROM base AS final
 WORKDIR /app
-
-# Нусха бардории файли барпо кардашуда
-COPY --from=build /app/out .
-
-# Фармони иҷрошаванда (боти моро оғоз мекунад)
-CMD ["dotnet", "TelegramBot.dll"]
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "TelegramBot.dll"]
