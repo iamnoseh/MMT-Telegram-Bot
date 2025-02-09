@@ -33,9 +33,6 @@ app.MapGet("/questions", async (DataContext context) =>
 });
 
 
-
-
-
 var token = builder.Configuration["BotConfiguration:Token"]
     ?? throw new ArgumentNullException("Telegram Bot Token is not configured!");
 
