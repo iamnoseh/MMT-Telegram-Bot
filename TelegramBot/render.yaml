@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: mmt-telegram-bot
+    env: docker
+    plan: free
+    repo: https://github.com/iamnoseh/MMT-Telegram-Bot
+    branch: main
+    envVars:
+      - key: 7586875361:AAGhLybn-7rwKpwYv-9Bp23yrdJ2sVZbYBw
+        sync: false
+      - key: https://your-app.onrender.com/webhook
+        sync: false
