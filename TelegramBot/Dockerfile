@@ -24,3 +24,6 @@ COPY --from=publish /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:10000
 ENTRYPOINT ["dotnet", "TelegramBot.dll"]
+
+CMD ["sh", "-c", "echo 'BOT_TOKEN='${7586875361:AAGhLybn-7rwKpwYv-9Bp23yrdJ2sVZbYBw}; dotnet TelegramBot.dll"]
+
