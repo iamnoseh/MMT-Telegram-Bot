@@ -34,7 +34,9 @@ app.MapGet("/questions", async (DataContext context) =>
 
 
 var token = builder.Configuration["BotConfiguration:Token"]
-    ?? throw new ArgumentNullException("Telegram Bot Token is not configured!");
+            ?? throw new ArgumentNullException("Telegram Bot Token is not configured!");
+// var webhookUrl = Environment.GetEnvironmentVariable("WEBHOOK_URL")
+//                  ?? throw new ArgumentNullException("Webhook URL is not configured!");
 
 var botHelper = new TelegramBotHelper(
     token,
