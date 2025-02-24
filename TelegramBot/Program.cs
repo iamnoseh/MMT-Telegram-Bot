@@ -137,8 +137,7 @@ internal class TelegramBotHelper
                     return;
                 }
             }
-
-            // Калидҳои фармонҳо:
+            
             switch (text)
             {
                 case "/start":
@@ -225,7 +224,7 @@ internal class TelegramBotHelper
 
     private async Task SendRegistrationRequest(long chatId)
     {
-        var requestContactButton = new KeyboardButton("Пешкаш кардани тамос") { RequestContact = true };
+        var requestContactButton = new KeyboardButton("Number Telephone") { RequestContact = true };
         var keyboard = new ReplyKeyboardMarkup(new List<KeyboardButton> { requestContactButton })
         {
             ResizeKeyboard = true,
@@ -258,7 +257,7 @@ internal class TelegramBotHelper
             };
 
             await _client.SendTextMessageAsync(chatId,
-                "Ташаккур! Акнун, лутфан номи худро (Name) ворид кунед.",
+                "Ташаккур! Акнун, лутфан номи худро ворид кунед.",
                 replyMarkup: new ReplyKeyboardRemove());
         }
         else
@@ -276,8 +275,7 @@ internal class TelegramBotHelper
         var regInfo = _pendingRegistrations[chatId];
         regInfo.Name = name;
         regInfo.IsNameReceived = true;
-
-        // Пас аз гирифтани номи корбар, хабар диҳем, ки акнун барои сабт намудани шаҳр интизор шавед.
+        
         await _client.SendTextMessageAsync(chatId,
             "Лутфан шаҳри худро ворид кунед.",
             replyMarkup: new ReplyKeyboardRemove());
@@ -311,7 +309,7 @@ internal class TelegramBotHelper
             await dbContext.SaveChangesAsync();
 
             await _client.SendTextMessageAsync(chatId,
-                "Сабти шумо бо муваффақият анҷом ёфт!\nҲоло шумо метавонед ба функсияҳои дигар, масалан 'Саволи нав', 'Top', 'Profile' ва 'Help', дастрасӣ пайдо кунед.",
+                "Сабти шумо бо муваффақият анҷом ёфт!,
                 replyMarkup: GetMainButtons());
         }
         catch (Exception ex)
@@ -485,7 +483,7 @@ internal class TelegramBotHelper
         }
 
         int cnt = 0;
-        var messageText = "Топ 50 корбар:\n#--Ном---Холҳо---Level";
+        var messageText = "Топ 50 корбар:\n#--Ном---Холҳо---Level\n";
         foreach (var user in topUsers)
         {
             cnt++;
