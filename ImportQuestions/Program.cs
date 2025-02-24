@@ -15,8 +15,9 @@ builder.Services.AddDbContext<DataContext>(options =>
 // Танзим кардани Kestrel барои гӯш кардани танҳо IP-локалӣ (127.0.0.1) ва порти 5000
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Listen(IPAddress.Loopback, 5000); // Гӯш кардани фақат дар маҳал (localhost)
+    options.Listen(IPAddress.Parse("31.130.144.99"), 5000); // IP-и хидматрасон ва порти 5000
 });
+
 
 builder.Services.AddControllersWithViews();
 
