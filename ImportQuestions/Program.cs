@@ -12,10 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<DataContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Configure Kestrel to listen on a specific IP address and port
+// Танзим кардани Kestrel барои гӯш кардани танҳо IP-локалӣ (127.0.0.1) ва порти 5000
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Listen(IPAddress.Any, 5000); // Барои гӯш кардани ҳама IP-ҳо дар порти 5000
+    options.Listen(IPAddress.Loopback, 5000); // Гӯш кардани фақат дар маҳал (localhost)
 });
 
 builder.Services.AddControllersWithViews();
@@ -25,12 +25,11 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    app.UseHsts(); // Барои ҳифзи SSL
+    app.UseHsts(); // Барои HTTPS дар муҳити истеҳсол
 }
 
 app.UseStaticFiles();
 app.UseRouting();
-
 app.UseAuthorization();
 
 // Танзими роутинг
@@ -38,5 +37,5 @@ app.MapControllerRoute(
     name: "default",
     pattern: "{controller=ImportMvc}/{action=Index}/{id?}");
 
-// Барои дастрасӣ танҳо бо HTTP (агар SSL сертификат истифода нашавад)
+// Запуск сервер
 app.Run();
