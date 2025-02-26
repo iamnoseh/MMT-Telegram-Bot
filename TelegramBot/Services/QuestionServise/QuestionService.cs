@@ -106,7 +106,7 @@ public class QuestionService(DataContext _context) : IQuestionService
 
         if (question == null)
         {
-            Console.WriteLine($"Савол бо ID={questionId} ёфтa нашуд.");
+            Console.WriteLine($"Савол бо ID={questionId} ёфт нашуд.");
             return null;
         }
 

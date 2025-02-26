@@ -9,6 +9,7 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using TelegramBot.Domain.DTOs;
 using TelegramBot.Domain.Entities;
 using TelegramBot.Services.OptionServices;
 using TelegramBot.Services.QuestionServise;
@@ -137,8 +138,6 @@ internal class TelegramBotHelper
                     return;
                 }
             }
-
-            // Калидҳои фармонҳо:
             switch (text)
             {
                 case "/start":
@@ -225,7 +224,7 @@ internal class TelegramBotHelper
 
     private async Task SendRegistrationRequest(long chatId)
     {
-        var requestContactButton = new KeyboardButton("Пешкаш кардани тамос") { RequestContact = true };
+        var requestContactButton = new KeyboardButton("Telephone Number") { RequestContact = true };
         var keyboard = new ReplyKeyboardMarkup(new List<KeyboardButton> { requestContactButton })
         {
             ResizeKeyboard = true,
@@ -233,7 +232,7 @@ internal class TelegramBotHelper
         };
 
         await _client.SendTextMessageAsync(chatId,
-            "Барои сабт кардан, лутфан тугмаи зер пахш кунед ва рақами телефони худро фиристед.",
+            "Барои сабт кардан, лутфан тугмаи зер пахш кунед !",
             replyMarkup: keyboard);
     }
 
@@ -242,7 +241,7 @@ internal class TelegramBotHelper
         var chatId = message.Chat.Id;
         var contact = message.Contact;
         
-        // Агар message.Chat.Username холӣ бошад, аз FirstName ҳамчун арзиши муфид истифода мекунем.
+        // Агар message.Chat.Username холӣ бошад, аз FirstName истифода мекунем.
         var autoUsername = !string.IsNullOrWhiteSpace(message.Chat.Username)
                                 ? message.Chat.Username
                                 : message.Chat.FirstName;
@@ -258,7 +257,7 @@ internal class TelegramBotHelper
             };
 
             await _client.SendTextMessageAsync(chatId,
-                "Ташаккур! Акнун, лутфан номи худро (Name) ворид кунед.",
+                "Ташаккур! Акнун, лутфан номи худро ворид кунед.",
                 replyMarkup: new ReplyKeyboardRemove());
         }
         else
@@ -276,8 +275,6 @@ internal class TelegramBotHelper
         var regInfo = _pendingRegistrations[chatId];
         regInfo.Name = name;
         regInfo.IsNameReceived = true;
-
-        // Пас аз гирифтани номи корбар, хабар диҳем, ки акнун барои сабт намудани шаҳр интизор шавед.
         await _client.SendTextMessageAsync(chatId,
             "Лутфан шаҳри худро ворид кунед.",
             replyMarkup: new ReplyKeyboardRemove());
@@ -304,14 +301,14 @@ internal class TelegramBotHelper
                 Name = regInfo.Name,
                 PhoneNumber = regInfo.Contact.PhoneNumber,
                 City = regInfo.City,
-                Score = 0 // Инициализатсияи асосии Score
+                Score = 0 
             };
 
             dbContext.Users.Add(user);
             await dbContext.SaveChangesAsync();
 
             await _client.SendTextMessageAsync(chatId,
-                "Сабти шумо бо муваффақият анҷом ёфт!\nҲоло шумо метавонед ба функсияҳои дигар, масалан 'Саволи нав', 'Top', 'Profile' ва 'Help', дастрасӣ пайдо кунед.",
+                "Сабти шумо бо муваффақият анҷом ёфт!\n'Барои оғоз тугмаи 'Саволи нав'-ро пахш кунед!",
                 replyMarkup: GetMainButtons());
         }
         catch (Exception ex)
@@ -377,7 +374,7 @@ internal class TelegramBotHelper
             }
             else
             {
-                res = $"Бозии шумо ба охир расид!\nХолҳои шумо: {_userScores[chatId]}/{MaxQuestions}.\nАз нав кӯшиш кунед!";
+                res = $"Тест ба охир расид!\nХолҳои шумо: {_userScores[chatId]}/{MaxQuestions}.\nАз нав кӯшиш кунед!";
             }
             await _client.SendTextMessageAsync(chatId, res,
                 replyMarkup: new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("Аз нав оғоз кардан !", "restart")));
@@ -409,7 +406,7 @@ internal class TelegramBotHelper
             _userScores[chatId] = 0;
             _userQuestions[chatId] = 0;
 
-            await _client.EditMessageTextAsync(chatId, messageId, "Бозии шумо аз нав оғоз шуд! Барои оғоз \"Саволи нав\"-ро пахш кунед.");
+            await _client.EditMessageTextAsync(chatId, messageId, "Барои тест омодаед? Барои оғоз \"Саволи нав\"-ро пахш кунед.");
             return;
         }
 
@@ -458,7 +455,7 @@ internal class TelegramBotHelper
         else
         {
             await _client.EditMessageTextAsync(chatId, messageId,
-                "Ҷавоби шумо нодуруст аст!\nБарои чавобҳои дурустро дидан метавонед файли саволҳоро боргири кунед ва беҳтар омода шавед!");
+                $"Ҷавоби шумо нодуруст аст!\nҶавоби дуруст: {question.Answer} аст! \nБарои чавобҳои дурустро дидан метавонед файли саволҳоро боргири кунед ва беҳтар омода шавед!");
         }
 
         var userResponse = new UserResponse
@@ -480,17 +477,17 @@ internal class TelegramBotHelper
 
         if (topUsers.Count == 0)
         {
-            await _client.SendTextMessageAsync(chatId, "Ҳеҷ корбар сабт нашудааст.");
+            await _client.SendTextMessageAsync(chatId, "Лист холи аст!");
             return;
         }
 
         int cnt = 0;
-        var messageText = "Топ 50 корбар:\n#--Ном---Холҳо---Level\n";
+        var messageText = "Топ 50 : \n#--Ном---Холҳо---Level\n";
         foreach (var user in topUsers)
         {
             cnt++;
             int level = GetLevel(user.Score);
-            messageText += $"№{cnt}--{user.Name} -- {user.Score} -- Левел: {level}\n";
+            messageText += $"{cnt}--{user.Name} -- {user.Score} -- Level: {level}\n";
         }
         await _client.SendTextMessageAsync(chatId, messageText);
     }
@@ -504,12 +501,12 @@ internal class TelegramBotHelper
         if (user != null)
         {
             int level = GetLevel(user.Score);
-            string profileText = $"Profile:\nНом: {user.Name}\nШаҳр: {user.City}\nScore: {user.Score}\nЛевел: {level}";
+            string profileText = $"Profile:\n    {user.Name}\nШаҳр: {user.City}\nScore: {user.Score}\nЛевел: {level}";
             await _client.SendTextMessageAsync(chatId, profileText);
         }
         else
         {
-            await _client.SendTextMessageAsync(chatId, "Шумо ҳанӯз сабт нашудаед. Лутфан барои сабт кардани ҳисоби худ /register-ро истифода баред.");
+            await _client.SendTextMessageAsync(chatId, "Шумо ҳанӯз сабт нашудаед. Лутфан барои сабт /register-ро пахш кунед.");
         }
     }
     
@@ -543,17 +540,6 @@ internal class TelegramBotHelper
     #endregion
 
     #region RegistrationInfo Class
-
-    private class RegistrationInfo
-    {
-        public Contact Contact { get; set; }
-        public string AutoUsername { get; set; }
-        public string Name { get; set; }
-        public bool IsNameReceived { get; set; }
-        public string City { get; set; }
-        public bool IsCityReceived { get; set; }
-    }
-
     #endregion
 }
 
