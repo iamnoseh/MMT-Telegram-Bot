@@ -338,8 +338,8 @@ internal class TelegramBotHelper
         {
             Keyboard = new List<List<KeyboardButton>>
             {
-                new() { new KeyboardButton("Саволи нав"), new KeyboardButton("Top") },
-                new() { new KeyboardButton("Profile"), new KeyboardButton("Help") }
+                new() { new KeyboardButton("❓ Саволи нав"), new KeyboardButton( "🏆 Топ") },
+                new() { new KeyboardButton("👤 Профил"), new KeyboardButton("ℹ️ Кумак") }
             },
             ResizeKeyboard = true
         };
@@ -382,7 +382,7 @@ internal class TelegramBotHelper
             {
                 res = $"Тест ба охир расид!\n" +
                       $"Холҳои шумо: {_userScores[chatId]}/{MaxQuestions}.\n" +
-                      $"Аз нав кӯшиш кунед!";
+                      $"♻️ Аз нав кӯшиш кунед!";
             }
 
             await _client.SendTextMessageAsync(chatId, res,
