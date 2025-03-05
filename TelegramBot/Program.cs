@@ -43,7 +43,6 @@ var botHelper = new TelegramBotHelper(
     app.Services.GetRequiredService<IResponseService>(),
     app.Services);
 
-// Бо Task.Run ботро дар background иҷро мекунем.
 Task.Run(() => botHelper.StartBotAsync());
 
 app.Run();
@@ -57,8 +56,7 @@ internal class TelegramBotHelper
     private readonly IResponseService _responseService;
     private readonly TelegramBotClient _client;
     private readonly IServiceProvider _serviceProvider;
-
-    // Мақсади гӯширо қайд кардан
+    
     private readonly Dictionary<long, RegistrationInfo> _pendingRegistrations = new();
 
     // Барои идора кардани саволҳо
@@ -79,10 +77,7 @@ internal class TelegramBotHelper
         _client = new TelegramBotClient(token);
         _serviceProvider = serviceProvider;
     }
-
-    /// <summary>
-    /// Методи асосӣ барои оғоз кардани бот (Long Polling ё Offset Polling).
-    /// </summary>
+    
     public async Task StartBotAsync()
     {
         try
@@ -179,7 +174,7 @@ internal class TelegramBotHelper
                     }
                     break;
 
-                case "Саволи нав":
+                case "❓ Саволи нав":
                     if (!await IsUserRegistered(chatId))
                     {
                         await _client.SendTextMessageAsync(chatId,
@@ -191,21 +186,21 @@ internal class TelegramBotHelper
                     }
                     break;
 
-                case "Top":
+                case "🏆 Топ":
                     await HandleTopCommand(chatId);
                     break;
 
-                case "Profile":
+                case "👤 Профил":
                     await HandleProfileCommand(chatId);
                     break;
 
-                case "Help":
+                case "ℹ️ Кумак":
                     await HandleHelpCommand(chatId);
                     break;
 
                 default:
                     // Агар ягон фармони дигар ворид шуда бошад, аммо корбар дар раванди сабт нест
-                    await _client.SendTextMessageAsync(chatId, "Фармони нодуруст ё манфаҳмам!");
+                    await _client.SendMessage(chatId, "Фармони нодуруст !");
                     break;
             }
         }
@@ -236,7 +231,7 @@ internal class TelegramBotHelper
         };
 
         await _client.SendTextMessageAsync(chatId,
-            "Барои сабт кардан, лутфан тугмаи зер пахш кунед !",
+            "Барои сабт кардан, лутфан тугмаи зерpo пахш кунед !",
             replyMarkup: keyboard);
     }
 
@@ -387,7 +382,7 @@ internal class TelegramBotHelper
 
             await _client.SendTextMessageAsync(chatId, res,
                 replyMarkup: new InlineKeyboardMarkup(
-                    InlineKeyboardButton.WithCallbackData("Аз нав оғоз кардан!", "restart")));
+                    InlineKeyboardButton.WithCallbackData("️♻️ Аз нав оғоз кардан!", "restart")));
             return;
         }
 
@@ -495,16 +490,26 @@ internal class TelegramBotHelper
             await _client.SendTextMessageAsync(chatId, "Лист холӣ аст!");
             return;
         }
+        string GetLevelStars(int level)
+        {
+            return new string('⭐', level);
+        }
 
         int cnt = 0;
-        var messageText = "Топ 50 : \n#--Ном---Холҳо---Level\n";
+        var messageText = "<b>🏆 Топ 50 Беҳтаринҳо</b>\n\n"
+                          + "<b>📊 Рӯйхат:</b>\n"
+                          + "<pre>#   Ном               Холи     Level</pre>\n"
+                          + "<pre>----------------------------------</pre>\n";
+
         foreach (var user in topUsers)
         {
             cnt++;
-            int level = GetLevel(user.Score);
-            messageText += $"{cnt}--{user.Name} -- {user.Score} -- Level: {level}\n";
+            string levelStars = GetLevelStars(GetLevel(user.Score));
+            messageText += $"<pre>{cnt,-2}  {user.Name,-15} {user.Score,-7} {levelStars}</pre>\n";
         }
-        await _client.SendTextMessageAsync(chatId, messageText);
+        
+        await _client.SendTextMessageAsync(chatId, messageText, parseMode: ParseMode.Html);
+
     }
 
     private async Task HandleProfileCommand(long chatId)

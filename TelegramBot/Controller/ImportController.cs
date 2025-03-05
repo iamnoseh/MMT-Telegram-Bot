@@ -1,7 +1,4 @@
 
-// ImportController.cs
-// (Ин қисми контроллерро шояд дар файли ҷудои "ImportController.cs" гузоред)
-
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using Microsoft.AspNetCore.Http;
