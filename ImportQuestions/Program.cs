@@ -15,13 +15,21 @@ builder.Services.AddDbContext<DataContext>(options =>
 // Танзим кардани Kestrel барои гӯш кардани танҳо IP-локалӣ (127.0.0.1) ва порти 5000
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Listen(IPAddress.Parse("31.130.144.99"), 5000); // IP-и хидматрасон ва порти 5000
+    options.Listen(IPAddress.Parse("37.27.249.153"), 5049); // IP-и хидматрасон ва порти 5000
 });
 
 
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
+
+// --- Мигратсияҳоро ба базаи додаҳо автоматикунона татбиқ мекунад ---
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<DataContext>();
+    db.Database.Migrate();
+}
+// --- Мигратсияҳо анҷом ёфт ---
 
 if (!app.Environment.IsDevelopment())
 {
