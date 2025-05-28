@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Threading;
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -27,11 +25,20 @@ builder.Services.AddScoped<IResponseService, ResponseService>();
 
 await using var app = builder.Build();
 
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<DataContext>();
+    db.Database.Migrate();
+}
+
 app.MapGet("/questions", async (DataContext context) =>
 {
     var questions = await context.Questions.Include(q => q.Option).ToListAsync();
     return Results.Ok(questions);
 });
+
+
 
 var token = builder.Configuration["BotConfiguration:Token"]
             ?? throw new ArgumentNullException("Telegram Bot Token is not configured!");
