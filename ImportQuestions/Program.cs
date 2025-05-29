@@ -12,10 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<DataContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Танзим кардани Kestrel барои гӯш кардани танҳо IP-локалӣ (127.0.0.1) ва порти 5000
+// Танзим кардани Kestrel барои гӯш кардани танҳо localhost
 builder.WebHost.ConfigureKestrel(options =>
 {
-    options.Listen(IPAddress.Parse("37.27.249.153"), 5049); // IP-и хидматрасон ва порти 5000
+    options.ListenLocalhost(5049); // Гӯш кардани танҳо localhost дар порти 5049
 });
 
 

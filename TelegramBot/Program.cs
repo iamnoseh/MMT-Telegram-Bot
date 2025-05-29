@@ -63,6 +63,8 @@ internal class TelegramBotHelper
     private readonly IResponseService _responseService;
     private readonly TelegramBotClient _client;
     private readonly IServiceProvider _serviceProvider;
+    private readonly string _channelId;
+    private readonly string _channelLink;
     
     private readonly Dictionary<long, RegistrationInfo> _pendingRegistrations = new();
 
@@ -83,6 +85,13 @@ internal class TelegramBotHelper
         _responseService = responseService;
         _client = new TelegramBotClient(token);
         _serviceProvider = serviceProvider;
+        
+        // Гирифтани маълумоти канал аз конфигуратсия
+        var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+        _channelId = configuration["TelegramChannel:ChannelId"] 
+            ?? throw new ArgumentNullException("Channel ID is not configured!");
+        _channelLink = configuration["TelegramChannel:ChannelLink"]
+            ?? throw new ArgumentNullException("Channel Link is not configured!");
     }
     
     public async Task StartBotAsync()
@@ -124,14 +133,22 @@ internal class TelegramBotHelper
         }
     }
 
-    #region Update Handler
-
+    #region Update Handler 
     private async Task HandleUpdateAsync(Update update)
     {
         if (update.Type == UpdateType.Message && update.Message != null)
         {
             var chatId = update.Message.Chat.Id;
             var text = update.Message.Text;
+
+            // Иҷозат додани танҳо фармонҳои /start ва /register бе обуна
+            if (text != "/start" && text != "/register")
+            {
+                if (!await CheckChannelSubscription(chatId))
+                {
+                    return;
+                }
+            }
 
             if (update.Message.Contact != null)
             {
@@ -406,12 +423,31 @@ internal class TelegramBotHelper
         {
             await _client.SendTextMessageAsync(chatId, "Дар айни замон саволҳо дастрас нестанд.");
         }
-    }
-
-    private async Task HandleCallbackQuery(CallbackQuery callbackQuery)
+    }    private async Task HandleCallbackQuery(CallbackQuery callbackQuery)
     {
         var chatId = callbackQuery.Message.Chat.Id;
         var messageId = callbackQuery.Message.MessageId;
+
+        if (callbackQuery.Data == "check_subscription")
+        {
+            if (await IsUserChannelMember(chatId))
+            {
+                await _client.DeleteMessageAsync(chatId, messageId);
+                await _client.SendTextMessageAsync(chatId, 
+                    "✅ Ташаккур барои обуна! Акнун шумо метавонед аз бот истифода баред.");
+                return;
+            }
+            else
+            {
+                await _client.AnswerCallbackQueryAsync(
+                    callbackQuery.Id,
+                    "❌ Шумо ҳоло ба канал обуна нашудаед!",
+                    showAlert: true
+                );
+                return;
+            }
+        }
+
         var callbackData = callbackQuery.Data.Split('_');
 
         if (callbackQuery.Data == "restart")
@@ -466,10 +502,9 @@ internal class TelegramBotHelper
             }
         }
         else
-        {
-            await _client.EditMessageTextAsync(chatId, messageId,
-                $"Ҷавоби шумо нодуруст аст!\n" +
-                $"Ҷавоби дуруст: {question.Answer} аст!");
+        {            await _client.EditMessageTextAsync(chatId, messageId,
+                $"❌ Афсӯс! Ҷавоби шумо нодуруст!\n" +
+                $"💡 Ҷавоби дуруст: {question.Answer} буд.");
         }
 
         var userResponse = new UserResponse
@@ -480,6 +515,47 @@ internal class TelegramBotHelper
             IsCorrect = isCorrect
         };
         await _responseService.SaveUserResponse(userResponse);
+    }    private async Task<bool> IsUserChannelMember(long chatId)
+    {
+        try
+        {
+            var chatMember = await _client.GetChatMemberAsync(_channelId, chatId);
+            var isValid = chatMember.Status is ChatMemberStatus.Member 
+                         or ChatMemberStatus.Administrator 
+                         or ChatMemberStatus.Creator;
+            
+            Console.WriteLine($"Checking subscription for user {chatId}: Status={chatMember.Status}, IsValid={isValid}");
+            return isValid;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error checking channel membership: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> CheckChannelSubscription(long chatId)
+    {
+        if (!await IsUserChannelMember(chatId))
+        {
+            var keyboard = new InlineKeyboardMarkup(new[]
+            {
+                new []
+                {
+                    InlineKeyboardButton.WithUrl("Обуна шудан ба канал", _channelLink)
+                },
+                new []
+                {
+                    InlineKeyboardButton.WithCallbackData("🔄 Тафтиш", "check_subscription")
+                }
+            });
+
+            await _client.SendTextMessageAsync(chatId,
+                "⚠️ Барои истифодаи бот, лутфан аввал ба канали мо обуна шавед!",
+                replyMarkup: keyboard);
+            return false;
+        }
+        return true;
     }
 
     #endregion
@@ -497,22 +573,36 @@ internal class TelegramBotHelper
             await _client.SendTextMessageAsync(chatId, "Лист холӣ аст!");
             return;
         }
+
         string GetLevelStars(int level)
         {
             return new string('⭐', level);
         }
 
+        string GetRankColor(int rank)
+        {
+            return rank switch
+            {
+                1 => "🥇", // Зард (тилло)
+                2 => "🥈", // Нуқра
+                3 => "🥉", // Биринҷӣ
+                <= 10 => "🔹", // Кабуд
+                _ => "⚪" // Сафед (бе ранг)
+            };
+        }
+
         int cnt = 0;
         var messageText = "<b>🏆 Топ 50 Беҳтаринҳо</b>\n\n"
                           + "<b>📊 Рӯйхат:</b>\n"
-                          + "<pre>#   Ном               Холи     Level</pre>\n"
+                          + "<pre>#        Номy Насаб         Хол  </pre>\n"
                           + "<pre>----------------------------------</pre>\n";
 
         foreach (var user in topUsers)
         {
             cnt++;
             string levelStars = GetLevelStars(GetLevel(user.Score));
-            messageText += $"<pre>{cnt,-2}  {user.Name,-15} {user.Score,-7} {levelStars}</pre>\n";
+            string rankSymbol = GetRankColor(cnt);
+            messageText += $"<pre>{cnt,0}.{rankSymbol} {user.Name,-12} |{user.Score,-0}|{rankSymbol}</pre>\n";
         }
         
         await _client.SendTextMessageAsync(chatId, messageText, parseMode: ParseMode.Html);
