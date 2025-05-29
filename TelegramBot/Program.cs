@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -593,16 +593,19 @@ internal class TelegramBotHelper
 
         int cnt = 0;
         var messageText = "<b>🏆 Топ 50 Беҳтаринҳо</b>\n\n"
-                          + "<b>📊 Рӯйхат:</b>\n"
                           + "<pre>#        Номy Насаб         Хол  </pre>\n"
                           + "<pre>----------------------------------</pre>\n";
 
         foreach (var user in topUsers)
         {
             cnt++;
+            if (user.Name.Length > 15)
+            {
+                user.Name = user.Name[..15] + "...";
+            }
             string levelStars = GetLevelStars(GetLevel(user.Score));
             string rankSymbol = GetRankColor(cnt);
-            messageText += $"<pre>{cnt,0}.{rankSymbol} {user.Name,-12} |{user.Score,-0}|{rankSymbol}</pre>\n";
+            messageText += $"<pre>{cnt,0}.{rankSymbol} {user.Name,-20} |{user.Score,-0}|{rankSymbol,2}</pre>\n";
         }
         
         await _client.SendTextMessageAsync(chatId, messageText, parseMode: ParseMode.Html);
