@@ -5,9 +5,8 @@ namespace TelegramBot.Services.OptionServices;
 
 public interface IOptionService
 {
-    Task<GetOptionDTO> GetOptionAsync(int requestId);
-    Task<List<GetOptionDTO>> GetOptionsAsyncs();
-    Task<bool> AddOptionsAsync(Option option);
-    Task<bool> RemoveOptionsAsync(int requestId);
-    Task<bool> UpdateOptionsAsync(Option request);
+    Task<GetOptionDTO> GetOptionByQuestionId(int questionId);
+    Task<GetOptionDTO> CreateOption(int questionId, Option option);
+    Task<GetOptionDTO> UpdateOption(int questionId, Option option);
+    Task<bool> DeleteOption(int questionId);
 }

@@ -7,5 +7,7 @@ public class UserResponse
     public int QuestionId { get; set; }
     public string SelectedOption { get; set; }
     public bool IsCorrect { get; set; }
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    // Алоқаҳо
+    public Question Question { get; set; }
 }

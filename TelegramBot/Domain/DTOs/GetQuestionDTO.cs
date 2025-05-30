@@ -2,6 +2,8 @@ namespace TelegramBot.Domain.DTOs;
 
 public class GetQuestionDTO
 {
-    public int QuestionId { get; set; }
+    public int Id { get; set; }
     public string QuestionText { get; set; }
+    public int SubjectId { get; set; }
+    public string SubjectName { get; set; }
 }

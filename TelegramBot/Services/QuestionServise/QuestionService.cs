@@ -1,130 +1,152 @@
 using Domain.DTOs;
 using Microsoft.EntityFrameworkCore;
+using Telegram.Bot.Types.ReplyMarkups;
 using TelegramBot.Domain.DTOs;
 using TelegramBot.Domain.Entities;
-using TelegramBot.Services.QuestionServise;
+using TelegramBot.Services.QuestionService;
 
-public class QuestionService(DataContext _context) : IQuestionService
+namespace TelegramBot.Services.QuestionService;
+
+public class QuestionService : IQuestionService
 {
-    public async Task<bool> AddQuestionsAsync(Question request)
+    private readonly DataContext _context;
+    private readonly Random _random;
+
+    public QuestionService(DataContext context)
     {
-        try
-        {
-            await _context.Questions.AddAsync(request);
-            await _context.SaveChangesAsync();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Хатогӣ ҳангоми илова кардани савол: {ex.Message}");
-            return false;
-        }
+        _context = context;
+        _random = new Random();
     }
 
-    public async Task<GetOptionDTO?> GetOptionDTOAsync(int questionId)
+    public async Task<List<GetQuestionDTO>> GetQuestionsBySubject(int subjectId)
     {
-        var options = await _context.Questions
-                                    .Where(x => x.QuestionId == questionId)
-                                    .Select(x => x.Option)
-                                    .FirstOrDefaultAsync();
-
-        if (options == null) return null;
-
-        return new GetOptionDTO
-        {
-            FirstVariant = options.FirstVariant,
-            SecondVariant = options.SecondVariant,
-            ThirdVariant = options.ThirdVariant,
-            FourthVariant = options.FourthVariant,
-            Answer = options.Answer
-        };
-    }
-
-    public async Task<List<GetOptionDTO>> GetOptionsAsync()
-    {
-        var options = await _context.Questions
-                                    .Select(e => new GetOptionDTO
-                                    {
-                                        FirstVariant = e.Option.FirstVariant,
-                                        SecondVariant = e.Option.SecondVariant,
-                                        ThirdVariant = e.Option.ThirdVariant,
-                                        FourthVariant = e.Option.FourthVariant,
-                                        Answer = e.Option.Answer
-                                    }).ToListAsync();
-        return options;
-    }
-
-    public async Task<GetQuestionWithOptionsDTO?> GetQuestionWithOptionsDTO()
-    {
-        var questions = await _context.Questions
-            .Include(q => q.Option)
+        return await _context.Questions
+            .Where(q => q.SubjectId == subjectId)
+            .Select(q => new GetQuestionDTO
+            {
+                Id = q.Id,
+                QuestionText = q.QuestionText,
+                SubjectId = q.SubjectId,
+                SubjectName = q.Subject.Name
+            })
             .ToListAsync();
+    }
 
-        if (!questions.Any())
+    public async Task<GetQuestionWithOptionsDTO> GetQuestionById(int id)
+    {
+        return await _context.Questions
+            .Where(q => q.Id == id)
+            .Select(q => new GetQuestionWithOptionsDTO
+            {
+                QuestionId = q.Id,
+                QuestionText = q.QuestionText,
+                FirstOption = q.Option.OptionA,
+                SecondOption = q.Option.OptionB,
+                ThirdOption = q.Option.OptionC,
+                FourthOption = q.Option.OptionD,
+                Answer = q.Option.CorrectAnswer,
+                SubjectId = q.SubjectId,
+                SubjectName = q.Subject.Name
+            })
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<GetQuestionWithOptionsDTO> GetRandomQuestionBySubject(int subjectId)
+    {
+        var questionsCount = await _context.Questions
+            .Where(q => q.SubjectId == subjectId)
+            .CountAsync();
+
+        if (questionsCount == 0)
             return null;
 
-        var random = new Random();
-        var question = questions[random.Next(questions.Count)];
+        var skip = _random.Next(questionsCount);
 
-        return new GetQuestionWithOptionsDTO
-        {
-            QuestionId = question.QuestionId,
-            QuestionText = question.QuestionText,
-            FirstOption = question.Option.FirstVariant,
-            SecondOption = question.Option.SecondVariant,
-            ThirdOption = question.Option.ThirdVariant,
-            FourthOption = question.Option.FourthVariant,
-            Answer = question.Option.Answer
-        };
-    }
-
-    public async Task<GetQuestionDTO> GetQuestionAsync(int requestId)
-    {
-        var question = await _context.Questions.FirstOrDefaultAsync(x => x.QuestionId == requestId);
-
-        if (question == null)
-        {
-            return new GetQuestionDTO
+        return await _context.Questions
+            .Where(q => q.SubjectId == subjectId)
+            .Include(q => q.Option)
+            .Include(q => q.Subject)
+            .Skip(skip)
+            .Take(1)
+            .Select(q => new GetQuestionWithOptionsDTO
             {
-                QuestionId = 0,
-                QuestionText = "Савол ёфтa нашуд"
-            };
-        }
-
-        return new GetQuestionDTO
-        {
-            QuestionId = question.QuestionId,
-            QuestionText = question.QuestionText
-        };
+                QuestionId = q.Id,
+                QuestionText = q.QuestionText,
+                FirstOption = q.Option.OptionA,
+                SecondOption = q.Option.OptionB,
+                ThirdOption = q.Option.OptionC,
+                FourthOption = q.Option.OptionD,
+                Answer = q.Option.CorrectAnswer,
+                SubjectId = q.SubjectId,
+                SubjectName = q.Subject.Name
+            })
+            .FirstOrDefaultAsync();
     }
 
-    public async Task<GetQuestionWithOptionsDTO?> GetQuestionById(int questionId)
+    public async Task<QuestionDTO> CreateQuestion(QuestionDTO questionDto)
+    {
+        var question = new Question
+        {
+            QuestionText = questionDto.QuestionText,
+            SubjectId = questionDto.SubjectId,
+            Option = new Option
+            {
+                OptionA = questionDto.OptionA,
+                OptionB = questionDto.OptionB,
+                OptionC = questionDto.OptionC,
+                OptionD = questionDto.OptionD,
+                CorrectAnswer = questionDto.CorrectAnswer
+            }
+        };
+
+        _context.Questions.Add(question);
+        await _context.SaveChangesAsync();
+        return questionDto;
+    }
+
+    public async Task<QuestionDTO> UpdateQuestion(int id, QuestionDTO questionDto)
     {
         var question = await _context.Questions
             .Include(q => q.Option)
-            .FirstOrDefaultAsync(q => q.QuestionId == questionId);
+            .FirstOrDefaultAsync(q => q.Id == id);
 
         if (question == null)
-        {
-            Console.WriteLine($"Савол бо ID={questionId} ёфт нашуд.");
             return null;
-        }
 
-        return new GetQuestionWithOptionsDTO
+        question.QuestionText = questionDto.QuestionText;
+        question.SubjectId = questionDto.SubjectId;
+        question.Option.OptionA = questionDto.OptionA;
+        question.Option.OptionB = questionDto.OptionB;
+        question.Option.OptionC = questionDto.OptionC;
+        question.Option.OptionD = questionDto.OptionD;
+        question.Option.CorrectAnswer = questionDto.CorrectAnswer;
+
+        await _context.SaveChangesAsync();
+        return questionDto;
+    }
+
+    public async Task<bool> DeleteQuestion(int id)
+    {
+        var question = await _context.Questions.FindAsync(id);
+        if (question == null)
+            return false;
+
+        _context.Questions.Remove(question);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    private IReplyMarkup GetMainButtons()
+    {
+        return new ReplyKeyboardMarkup
         {
-            QuestionId = question.QuestionId,
-            QuestionText = question.QuestionText,
-            FirstOption = question.Option.FirstVariant,
-            SecondOption = question.Option.SecondVariant,
-            ThirdOption = question.Option.ThirdVariant,
-            FourthOption = question.Option.FourthVariant,
-            Answer = question.Option.Answer
+            Keyboard = new List<List<KeyboardButton>>
+            {
+                new() { new KeyboardButton("📚 Интихоби фан") },
+                new() { new KeyboardButton("❓ Саволи нав"), new KeyboardButton("🏆 Топ") },
+                new() { new KeyboardButton("👤 Профил"), new KeyboardButton("ℹ️ Кумак") }
+            },
+            ResizeKeyboard = true
         };
     }
-
-    public Task<List<GetOptionDTO>> GetOptionsAsyncs()
-    {
-        throw new NotImplementedException();
-    }
-
 }

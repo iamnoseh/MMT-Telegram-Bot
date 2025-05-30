@@ -1,4 +1,6 @@
-﻿﻿using Microsoft.AspNetCore.Builder;
+﻿using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -10,7 +12,8 @@ using Telegram.Bot.Types.ReplyMarkups;
 using TelegramBot.Domain.DTOs;
 using TelegramBot.Domain.Entities;
 using TelegramBot.Services.OptionServices;
-using TelegramBot.Services.QuestionServise;
+using TelegramBot.Services.QuestionService;
+using TelegramBot.Services.SubjectService;
 using TelegramBot.Services.UserResponceService;
 using User = TelegramBot.Domain.Entities.User;
 
@@ -22,14 +25,15 @@ builder.Services.AddDbContext<DataContext>(options =>
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<IOptionService, OptionService>();
 builder.Services.AddScoped<IResponseService, ResponseService>();
+builder.Services.AddScoped<ISubjectService, SubjectService>();
 
 await using var app = builder.Build();
-
 
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<DataContext>();
     db.Database.Migrate();
+    SeedSubjects(db);
 }
 
 app.MapGet("/questions", async (DataContext context) =>
@@ -37,8 +41,6 @@ app.MapGet("/questions", async (DataContext context) =>
     var questions = await context.Questions.Include(q => q.Option).ToListAsync();
     return Results.Ok(questions);
 });
-
-
 
 var token = builder.Configuration["BotConfiguration:Token"]
             ?? throw new ArgumentNullException("Telegram Bot Token is not configured!");
@@ -48,45 +50,71 @@ var botHelper = new TelegramBotHelper(
     app.Services.GetRequiredService<IQuestionService>(),
     app.Services.GetRequiredService<IOptionService>(),
     app.Services.GetRequiredService<IResponseService>(),
+    app.Services.GetRequiredService<ISubjectService>(),
     app.Services);
 
 Task.Run(() => botHelper.StartBotAsync());
 
 app.Run();
 
+#region SeedSubjects
+void SeedSubjects(DataContext db)
+{
+    var subjects = new[]
+    {
+        new Subject { Id = 1, Name = "Химия" },
+        new Subject { Id = 2, Name = "Биология" },
+        new Subject { Id = 3, Name = "Забони тоҷикӣ" },
+        new Subject { Id = 4, Name = "English" },
+        new Subject { Id = 5, Name = "Таърих" }
+    };
+
+    foreach (var subject in subjects)
+    {
+        if (!db.Subjects.Any(s => s.Id == subject.Id))
+        {
+            db.Subjects.Add(subject);
+        }
+    }
+
+    db.SaveChanges();
+}
+#endregion
+
 #region TelegramBotHelper
 
 internal class TelegramBotHelper
 {
+    private readonly IQuestionService _questionService;
     private readonly IOptionService _optionService;
-    private readonly IQuestionService _service;
     private readonly IResponseService _responseService;
+    private readonly ISubjectService _subjectService;
     private readonly TelegramBotClient _client;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _channelId;
     private readonly string _channelLink;
     
     private readonly Dictionary<long, RegistrationInfo> _pendingRegistrations = new();
-
-    // Барои идора кардани саволҳо
     private readonly Dictionary<long, int> _userScores = new();
     private readonly Dictionary<long, int> _userQuestions = new();
     private const int MaxQuestions = 10;
+    private readonly Dictionary<long, int> _userCurrentSubject = new();
 
     public TelegramBotHelper(
         string token,
         IQuestionService questionService,
         IOptionService optionService,
         IResponseService responseService,
+        ISubjectService subjectService,
         IServiceProvider serviceProvider)
     {
-        _service = questionService;
+        _questionService = questionService;
         _optionService = optionService;
         _responseService = responseService;
+        _subjectService = subjectService;
         _client = new TelegramBotClient(token);
         _serviceProvider = serviceProvider;
         
-        // Гирифтани маълумоти канал аз конфигуратсия
         var configuration = serviceProvider.GetRequiredService<IConfiguration>();
         _channelId = configuration["TelegramChannel:ChannelId"] 
             ?? throw new ArgumentNullException("Channel ID is not configured!");
@@ -98,7 +126,7 @@ internal class TelegramBotHelper
     {
         try
         {
-            var me = await _client.GetMeAsync();
+            var me = await _client.GetMe();
             Console.WriteLine($"Bot connected as: {me.Username}");
 
             var offset = 0;
@@ -106,24 +134,18 @@ internal class TelegramBotHelper
             {
                 try
                 {
-                    // Паёмҳоро бо offset мегирем
-                    var updates = await _client.GetUpdatesAsync(offset);
+                    var updates = await _client.GetUpdates(offset);
                     foreach (var update in updates)
                     {
-                        // Ҳар як update-ро коркард мекунем
                         await HandleUpdateAsync(update);
-
-                        // offset-ро як адад зиёд мекунем, то паёмҳои такрорӣ нагирем
                         offset = update.Id + 1;
                     }
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error in polling: {ex.Message}");
-                    // Барои пешгирӣ аз даври бепоён андаке таъхир
                     await Task.Delay(1000);
                 }
-                // Барои паст кардани сарборӣ андаке таъхир
                 await Task.Delay(500);
             }
         }
@@ -138,8 +160,32 @@ internal class TelegramBotHelper
     {
         if (update.Type == UpdateType.Message && update.Message != null)
         {
-            var chatId = update.Message.Chat.Id;
-            var text = update.Message.Text;
+            var message = update.Message;
+            var chatId = message.Chat.Id;
+            var text = message.Text;
+
+            // Санҷиши мавҷудияти документ (файл) пеш аз коркарди матн
+            if (message.Document != null)
+            {
+                // Танҳо админҳо метавонанд файл боргузорӣ кунанд
+                if (await IsUserAdmin(chatId))
+                {
+                    if (!_userCurrentSubject.ContainsKey(chatId))
+                    {
+                        await _client.SendMessage(chatId,
+                            "❌ Лутфан аввал фанро интихоб кунед!",
+                            replyMarkup: await GetMainButtons(chatId));
+                        return;
+                    }
+                    await HandleFileUpload(message);
+                }
+                else
+                {
+                    await _client.SendMessage(chatId,
+                        "❌ Танҳо админҳо метавонанд файл боргузорӣ кунанд!");
+                }
+                return;
+            }
 
             // Иҷозат додани танҳо фармонҳои /start ва /register бе обуна
             if (text != "/start" && text != "/register")
@@ -150,9 +196,9 @@ internal class TelegramBotHelper
                 }
             }
 
-            if (update.Message.Contact != null)
+            if (message.Contact != null)
             {
-                await HandleContactRegistration(update.Message);
+                await HandleContactRegistration(message);
                 return;
             }
 
@@ -180,9 +226,9 @@ internal class TelegramBotHelper
                     }
                     else
                     {
-                        await _client.SendTextMessageAsync(chatId,
+                        await _client.SendMessage(chatId,
                             "Хуш омадед! Барои оғоз тугмаи 'Саволи нав'-ро пахш кунед.",
-                            replyMarkup: GetMainButtons());
+                            replyMarkup: await GetMainButtons(chatId));
                     }
                     break;
 
@@ -193,7 +239,7 @@ internal class TelegramBotHelper
                     }
                     else
                     {
-                        await _client.SendTextMessageAsync(chatId,
+                        await _client.SendMessage(chatId,
                             "Шумо аллакай сабт шудаед!");
                     }
                     break;
@@ -201,7 +247,7 @@ internal class TelegramBotHelper
                 case "❓ Саволи нав":
                     if (!await IsUserRegistered(chatId))
                     {
-                        await _client.SendTextMessageAsync(chatId,
+                        await _client.SendMessage(chatId,
                             "Лутфан аввал ба бот сабт шавед. Барои сабт /register-ро пахш кунед.");
                     }
                     else
@@ -222,9 +268,43 @@ internal class TelegramBotHelper
                     await HandleHelpCommand(chatId);
                     break;
 
+                case "📚 Интихоби фан":
+                    var subjectKeyboard = new ReplyKeyboardMarkup
+                    {
+                        Keyboard = new List<List<KeyboardButton>>
+                        {
+                            new() { new KeyboardButton("🧪 Химия"), new KeyboardButton("🔬 Биология") },
+                            new() { new KeyboardButton("📖 Забони тоҷикӣ"), new KeyboardButton("🌍 English") },
+                            new() { new KeyboardButton("📜 Таърих") },
+                            new() { new KeyboardButton("⬅️ Бозгашт") }
+                        },
+                        ResizeKeyboard = true
+                    };
+                    await _client.SendMessage(chatId,
+                        "Лутфан фанро интихоб кунед:",
+                        replyMarkup: subjectKeyboard);
+                    break;
+
+                case "🧪 Химия":
+                case "🔬 Биология":
+                case "📖 Забони тоҷикӣ":
+                case "🌍 English":
+                case "📜 Таърих":
+                    await HandleSubjectSelection(chatId, text);
+                    break;
+
+                case "⬅️ Бозгашт":
+                    await _client.SendMessage(chatId,
+                        "Менюи асосӣ",
+                        replyMarkup: await GetMainButtons(chatId));
+                    break;
+
+                case "👨‍💼 Админ":
+                    await HandleAdminCommand(chatId);
+                    break;
+
                 default:
-                    // Агар ягон фармони дигар ворид шуда бошад, аммо корбар дар раванди сабт нест
-                    await _client.SendMessage(chatId, "Фармони нодуруст !");
+                    await _client.SendMessage(chatId, "Фармони нодуруст!");
                     break;
             }
         }
@@ -254,8 +334,8 @@ internal class TelegramBotHelper
             OneTimeKeyboard = true
         };
 
-        await _client.SendTextMessageAsync(chatId,
-            "Барои сабт кардан, лутфан тугмаи зерpo пахш кунед !",
+        await _client.SendMessage(chatId,
+            "Барои сабт кардан, лутфан тугмаи зерро пахш кунед!",
             replyMarkup: keyboard);
     }
 
@@ -264,7 +344,6 @@ internal class TelegramBotHelper
         var chatId = message.Chat.Id;
         var contact = message.Contact;
 
-        // Агар message.Chat.Username холӣ бошад, аз FirstName истифода мекунем.
         var autoUsername = !string.IsNullOrWhiteSpace(message.Chat.Username)
             ? message.Chat.Username
             : message.Chat.FirstName;
@@ -279,13 +358,13 @@ internal class TelegramBotHelper
                 IsCityReceived = false
             };
 
-            await _client.SendTextMessageAsync(chatId,
+            await _client.SendMessage(chatId,
                 "Ташаккур! Акнун, лутфан номи худро ворид кунед.",
                 replyMarkup: new ReplyKeyboardRemove());
         }
         else
         {
-            await _client.SendTextMessageAsync(chatId,
+            await _client.SendMessage(chatId,
                 "Лутфан номи худро ворид кунед, то сабт ба итмом расад.");
         }
     }
@@ -299,7 +378,7 @@ internal class TelegramBotHelper
         regInfo.Name = name;
         regInfo.IsNameReceived = true;
 
-        await _client.SendTextMessageAsync(chatId,
+        await _client.SendMessage(chatId,
             "Лутфан шаҳри худро ворид кунед.",
             replyMarkup: new ReplyKeyboardRemove());
     }
@@ -331,15 +410,15 @@ internal class TelegramBotHelper
             dbContext.Users.Add(user);
             await dbContext.SaveChangesAsync();
 
-            await _client.SendTextMessageAsync(chatId,
-                "Сабти шумо бо муваффақият анҷом ёфт!\n'Барои оғоз тугмаи 'Саволи нав'-ро пахш кунед!",
-                replyMarkup: GetMainButtons());
+            await _client.SendMessage(chatId,
+                "Сабти шумо бо муваффақият анҷом ёфт!\nБарои оғоз тугмаи 'Саволи нав'-ро пахш кунед!",
+                replyMarkup: await GetMainButtons(chatId));
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error saving user registration: {ex.Message}");
-            await _client.SendTextMessageAsync(chatId,
-                "Дар сабти маълумот хатое рӯй дод. Лутфан баъдтар кӯшиш намоед.");
+            await _client.SendMessage(chatId,
+                "Дар сабти маълумот хатое рūй дод. Лутфан баъдтар кūшиш намоед.");
         }
         finally
         {
@@ -349,19 +428,25 @@ internal class TelegramBotHelper
 
     #endregion
 
-    #region Question Methods
-
-    private IReplyMarkup GetMainButtons()
+    #region Question Methods      
+    private async Task<IReplyMarkup> GetMainButtons(long chatId)
     {
-        return new ReplyKeyboardMarkup
+        var isAdmin = await IsUserAdmin(chatId);
+        var buttons = new List<List<KeyboardButton>>();
+        
+        buttons.Add(new() { new KeyboardButton("📚 Интихоби фан"), new KeyboardButton("❓ Саволи нав") });
+        buttons.Add(new() { new KeyboardButton("🏆 Топ"), new KeyboardButton("👤 Профил") });
+        
+        if (isAdmin)
         {
-            Keyboard = new List<List<KeyboardButton>>
-            {
-                new() { new KeyboardButton("❓ Саволи нав"), new KeyboardButton( "🏆 Топ") },
-                new() { new KeyboardButton("👤 Профил"), new KeyboardButton("ℹ️ Кумак") }
-            },
-            ResizeKeyboard = true
-        };
+            buttons.Add(new() { new KeyboardButton("ℹ️ Кумак"), new KeyboardButton("👨‍💼 Админ") });
+        }
+        else
+        {
+            buttons.Add(new() { new KeyboardButton("ℹ️ Кумак") });
+        }
+
+        return new ReplyKeyboardMarkup(buttons) { ResizeKeyboard = true };
     }
 
     private IReplyMarkup GetButtons(int questionId)
@@ -381,8 +466,59 @@ internal class TelegramBotHelper
         });
     }
 
+    private async Task HandleSubjectSelection(long chatId, string text)
+    {
+        int subjectId = text switch
+        {
+            "🧪 Химия" => 1,
+            "🔬 Биология" => 2,
+            "📖 Забони тоҷикӣ" => 3,
+            "🌍 English" => 4,
+            "📜 Таърих" => 5,
+            _ => 0
+        };
+
+        if (subjectId == 0)
+            return;
+
+        _userCurrentSubject[chatId] = subjectId;
+        
+        var isAdmin = await IsUserAdmin(chatId);
+        var buttons = new List<List<KeyboardButton>>();
+        string message;
+        
+        if (isAdmin)
+        {
+            buttons.Add(new() { new KeyboardButton("📤 Боргузории файл") });
+            message = $"Шумо фанни {text}-ро интихоб кардед.\n" +
+                     "Барои илова кардани саволҳо файли .docx-ро равон кунед.";
+        }
+        else
+        {
+            message = $"Шумо фанни {text}-ро интихоб кардед.\n" +
+                     "Барои оғози тест тугмаи 'Саволи нав'-ро пахш кунед.";
+        }
+        
+        buttons.Add(new() { new KeyboardButton("⬅️ Бозгашт") });
+
+        var keyboard = new ReplyKeyboardMarkup(buttons)
+        {
+            ResizeKeyboard = true
+        };
+
+        await _client.SendMessage(chatId, message, replyMarkup: keyboard);
+    }
+
     private async Task HandleNewQuestion(long chatId)
     {
+        if (!_userCurrentSubject.TryGetValue(chatId, out int currentSubject))
+        {
+            await _client.SendMessage(chatId,
+                "❌ Лутфан аввал фанро интихоб кунед!",
+                replyMarkup: await GetMainButtons(chatId));
+            return;
+        }
+
         if (!_userQuestions.ContainsKey(chatId))
         {
             _userQuestions[chatId] = 0;
@@ -394,37 +530,47 @@ internal class TelegramBotHelper
             string res;
             if (_userScores[chatId] == MaxQuestions)
             {
-                res = $"Офарин! Шумо 100% холҳоро соҳиб шудед!\n" +
+                res = $"🎉 Офарин! Шумо 100% холҳоро соҳиб шудед!\n" +
                       $"Холҳои шумо: {_userScores[chatId]}/{MaxQuestions}.";
             }
             else
             {
-                res = $"Тест ба охир расид!\n" +
+                res = $"📝 Тест ба охир расид!\n" +
                       $"Холҳои шумо: {_userScores[chatId]}/{MaxQuestions}.\n" +
                       $"♻️ Аз нав кӯшиш кунед!";
             }
 
-            await _client.SendTextMessageAsync(chatId, res,
+            await _client.SendMessage(chatId, res,
                 replyMarkup: new InlineKeyboardMarkup(
                     InlineKeyboardButton.WithCallbackData("️♻️ Аз нав оғоз кардан!", "restart")));
             return;
         }
 
-        var question = await _service.GetQuestionWithOptionsDTO();
+        var question = await _questionService.GetRandomQuestionBySubject(currentSubject);
         if (question != null)
         {
             _userQuestions[chatId]++;
-            await _client.SendTextMessageAsync(chatId,
-                $"{question.QuestionText}\nA) {question.FirstOption}\nB) {question.SecondOption}\n" +
-                $"C) {question.ThirdOption}\nD) {question.FourthOption}",
+            await _client.SendMessage(chatId,
+                $"📚 Фан: {question.SubjectName}\n\n" +
+                $"❓ {question.QuestionText}\n\n" +
+                $"A) {question.FirstOption}\n" +
+                $"B) {question.SecondOption}\n" +
+                $"C) {question.ThirdOption}\n" +
+                $"D) {question.FourthOption}",
                 replyMarkup: GetButtons(question.QuestionId));
         }
         else
         {
-            await _client.SendTextMessageAsync(chatId, "Дар айни замон саволҳо дастрас нестанд.");
+            await _client.SendMessage(chatId,
+                "❌ Дар айни замон саволҳо барои ин фан дастрас нестанд.");
         }
-    }    private async Task HandleCallbackQuery(CallbackQuery callbackQuery)
+    }
+
+    private async Task HandleCallbackQuery(CallbackQuery callbackQuery)
     {
+        if (callbackQuery.Message?.Chat == null || callbackQuery.Data == null)
+            return;
+
         var chatId = callbackQuery.Message.Chat.Id;
         var messageId = callbackQuery.Message.MessageId;
 
@@ -432,14 +578,14 @@ internal class TelegramBotHelper
         {
             if (await IsUserChannelMember(chatId))
             {
-                await _client.DeleteMessageAsync(chatId, messageId);
-                await _client.SendTextMessageAsync(chatId, 
+                await _client.DeleteMessage(chatId, messageId);
+                await _client.SendMessage(chatId, 
                     "✅ Ташаккур барои обуна! Акнун шумо метавонед аз бот истифода баред.");
                 return;
             }
             else
             {
-                await _client.AnswerCallbackQueryAsync(
+                await _client.AnswerCallbackQuery(
                     callbackQuery.Id,
                     "❌ Шумо ҳоло ба канал обуна нашудаед!",
                     showAlert: true
@@ -455,7 +601,7 @@ internal class TelegramBotHelper
             _userScores[chatId] = 0;
             _userQuestions[chatId] = 0;
 
-            await _client.EditMessageTextAsync(chatId, messageId,
+            await _client.EditMessageText(chatId, messageId,
                 "Барои тест омодаед? Барои оғоз \"Саволи нав\"-ро пахш кунед.");
             return;
         }
@@ -463,10 +609,10 @@ internal class TelegramBotHelper
         if (!int.TryParse(callbackData[0], out int questionId))
             return;
 
-        var question = await _service.GetQuestionById(questionId);
+        var question = await _questionService.GetQuestionById(questionId);
         if (question == null)
         {
-            await _client.EditMessageTextAsync(chatId, messageId, "Савол ёфт нашуд.");
+            await _client.EditMessageText(chatId, messageId, "Савол ёфт нашуд.");
             return;
         }
 
@@ -476,21 +622,22 @@ internal class TelegramBotHelper
         }
 
         var selectedOption = callbackData[1].Trim().ToUpper();
-        string correctAnswer = question.Answer.Trim();
-
-        bool isCorrect = selectedOption switch
+        string selectedOptionText = selectedOption switch
         {
-            "A" => correctAnswer == question.FirstOption.Trim(),
-            "B" => correctAnswer == question.SecondOption.Trim(),
-            "C" => correctAnswer == question.ThirdOption.Trim(),
-            "D" => correctAnswer == question.FourthOption.Trim(),
-            _ => false
+            "A" => question.FirstOption.Trim(),
+            "B" => question.SecondOption.Trim(),
+            "C" => question.ThirdOption.Trim(),
+            "D" => question.FourthOption.Trim(),
+            _ => ""
         };
+
+        string correctAnswer = question.Answer.Trim();
+        bool isCorrect = selectedOptionText == correctAnswer;
 
         if (isCorrect)
         {
             _userScores[chatId]++;
-            await _client.EditMessageTextAsync(chatId, messageId, "Офарин! +1 балл");
+            await _client.EditMessageText(chatId, messageId, "Офарин! +1 балл");
 
             using var scope = _serviceProvider.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
@@ -502,24 +649,27 @@ internal class TelegramBotHelper
             }
         }
         else
-        {            await _client.EditMessageTextAsync(chatId, messageId,
+        {
+            await _client.EditMessageText(chatId, messageId,
                 $"❌ Афсӯс! Ҷавоби шумо нодуруст!\n" +
-                $"💡 Ҷавоби дуруст: {question.Answer} буд.");
+                $"💡 Ҷавоби дуруст: {correctAnswer} буд.");
         }
 
         var userResponse = new UserResponse
         {
             ChatId = chatId,
             QuestionId = questionId,
-            SelectedOption = selectedOption,
+            SelectedOption = selectedOptionText,
             IsCorrect = isCorrect
         };
         await _responseService.SaveUserResponse(userResponse);
-    }    private async Task<bool> IsUserChannelMember(long chatId)
+    }
+
+    private async Task<bool> IsUserChannelMember(long chatId)
     {
         try
         {
-            var chatMember = await _client.GetChatMemberAsync(_channelId, chatId);
+            var chatMember = await _client.GetChatMember(_channelId, chatId);
             var isValid = chatMember.Status is ChatMemberStatus.Member 
                          or ChatMemberStatus.Administrator 
                          or ChatMemberStatus.Creator;
@@ -550,7 +700,7 @@ internal class TelegramBotHelper
                 }
             });
 
-            await _client.SendTextMessageAsync(chatId,
+            await _client.SendMessage(chatId,
                 "⚠️ Барои истифодаи бот, лутфан аввал ба канали мо обуна шавед!",
                 replyMarkup: keyboard);
             return false;
@@ -570,7 +720,7 @@ internal class TelegramBotHelper
 
         if (topUsers.Count == 0)
         {
-            await _client.SendTextMessageAsync(chatId, "Лист холӣ аст!");
+            await _client.SendMessage(chatId, "Лист холӣ аст!");
             return;
         }
 
@@ -608,8 +758,7 @@ internal class TelegramBotHelper
             messageText += $"<pre>{cnt,0}.{rankSymbol} {user.Name,-20} |{user.Score,-0}|{rankSymbol,2}</pre>\n";
         }
         
-        await _client.SendTextMessageAsync(chatId, messageText, parseMode: ParseMode.Html);
-
+        await _client.SendMessage(chatId, messageText, parseMode: ParseMode.Html);
     }
 
     private async Task HandleProfileCommand(long chatId)
@@ -624,11 +773,11 @@ internal class TelegramBotHelper
                                  $"Шаҳр: {user.City}\n" +
                                  $"Score: {user.Score}\n" +
                                  $"Левел: {level}";
-            await _client.SendTextMessageAsync(chatId, profileText);
+            await _client.SendMessage(chatId, profileText);
         }
         else
         {
-            await _client.SendTextMessageAsync(chatId,
+            await _client.SendMessage(chatId,
                 "Шумо ҳанӯз сабт нашудаед. Лутфан барои сабт /register-ро пахш кунед.");
         }
     }
@@ -642,7 +791,7 @@ internal class TelegramBotHelper
                           "Top - барои дидани топ 50 корбар\n" +
                           "Profile - барои дидани маълумоти шахсии шумо\n" +
                           "Help - барои дидани ин рӯйхат\n";
-        await _client.SendTextMessageAsync(chatId, helpText);
+        await _client.SendMessage(chatId, helpText);
     }
 
     private int GetLevel(int score)
@@ -657,6 +806,221 @@ internal class TelegramBotHelper
             return 4;
         else
             return 5;
+    }
+
+    #endregion
+
+    #region File Upload
+
+    private async Task HandleFileUpload(Message message)
+    {
+        if (message.Document == null)
+            return;
+
+        var chatId = message.Chat.Id;
+        var fileName = message.Document.FileName ?? "unnamed.docx";
+        var username = !string.IsNullOrWhiteSpace(message.From?.Username) 
+            ? $"@{message.From.Username}" 
+            : message.From?.FirstName ?? "Unknown user";
+
+        if (!fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            await _client.SendMessage(chatId, 
+                "❌ Лутфан танҳо файли .docx равон кунед!");
+            return;
+        }
+
+        try
+        {
+            var file = await _client.GetFile(message.Document.FileId);
+            if (file.FilePath == null)
+            {
+                throw new Exception("Could not get file path from Telegram");
+            }
+
+            using var stream = new MemoryStream();
+            await _client.DownloadFile(file.FilePath, stream);
+            stream.Position = 0;
+
+            if (!_userCurrentSubject.TryGetValue(chatId, out int currentSubject))
+            {
+                await _client.SendMessage(chatId, 
+                    "❌ Лутфан аввал фанро интихоб кунед!");
+                return;
+            }
+
+            await NotifyAdmins($"📥 Файли нав аз {username}\nНоми файл: {fileName}\nБа коркард дода шуд...");
+
+            var questions = ParseQuestionsFromDocx(stream, currentSubject);
+
+            foreach (var question in questions)
+            {
+                await _questionService.CreateQuestion(question);
+            }
+
+            var successMessage = $"✅ {questions.Count} савол бо муваффақият илова карда шуд!";
+            await _client.SendMessage(chatId, successMessage);
+
+            await NotifyAdmins($"✅ Аз файли {fileName}\n" +
+                             $"Ки аз тарафи {username} фиристода шуда буд,\n" +
+                             $"{questions.Count} савол бо муваффақият илова карда шуд!");
+        }
+        catch (Exception ex)
+        {
+            var errorMessage = $"❌ Хатогӣ: {ex.Message}";
+            await _client.SendMessage(chatId, errorMessage);
+
+            await NotifyAdmins($"❌ Хатогӣ ҳангоми коркарди файл:\n" +
+                             $"Файл: {fileName}\n" +
+                             $"Корбар: {username}\n" +
+                             $"Хатогӣ: {ex.Message}");
+        }
+    }
+
+    private async Task NotifyAdmins(string message)
+    {
+        try
+        {
+            var chatMembers = await _client.GetChatAdministrators(_channelId);
+            
+            foreach (var member in chatMembers)
+            {
+                if (member.Status is ChatMemberStatus.Creator or ChatMemberStatus.Administrator)
+                {
+                    try
+                    {
+                        await _client.SendMessage(member.User.Id, message);
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error notifying admins: {ex.Message}");
+        }
+    }
+
+    private List<QuestionDTO> ParseQuestionsFromDocx(Stream docxStream, int subjectId)
+    {
+        var questions = new List<QuestionDTO>();
+
+        using (var wordDoc = WordprocessingDocument.Open(docxStream, false))
+        {
+            if (wordDoc.MainDocumentPart?.Document?.Body == null)
+            {
+                throw new Exception("Файл холӣ аст ё шакли нодуруст дорад");
+            }
+
+            var body = wordDoc.MainDocumentPart.Document.Body;
+            var paragraphs = body.Elements<Paragraph>()
+                               .Where(p => p.InnerText != null)
+                               .Select(p => p.InnerText)
+                               .Where(text => !string.IsNullOrWhiteSpace(text))
+                               .ToList();
+            
+            if (paragraphs.Count < 5)
+            {
+                throw new Exception("Файл холӣ аст ё саволҳо нодуруст ворид шудаанд");
+            }
+
+            for (int i = 0; i <= paragraphs.Count - 5; i += 5)
+            {
+                string questionText = paragraphs[i].Trim();
+
+                string[] variants = new string[4];
+                string correctAnswer = "";
+                for (int j = 0; j < 4; j++)
+                {
+                    string line = paragraphs[i + j + 1].Trim();
+                    int idx = line.IndexOf(")");
+                    if (idx >= 0)
+                    {
+                        line = line.Substring(idx + 1).Trim();
+                    }
+                    if (line.EndsWith("--"))
+                    {
+                        line = line.Substring(0, line.Length - 2).Trim();
+                        correctAnswer = line;
+                    }
+                    variants[j] = line;
+                }
+
+                if (string.IsNullOrEmpty(correctAnswer))
+                    throw new Exception($"Ҷавоби дуруст барои савол '{questionText}' ёфт нашуд.");
+
+                var questionDto = new QuestionDTO
+                {
+                    QuestionText = questionText,
+                    SubjectId = subjectId,
+                    OptionA = variants[0],
+                    OptionB = variants[1],
+                    OptionC = variants[2],
+                    OptionD = variants[3],
+                    CorrectAnswer = correctAnswer
+                };
+
+                questions.Add(questionDto);
+            }
+        }
+
+        if (questions.Count == 0)
+        {
+            throw new Exception("Дар файл ягон савол ёфт нашуд");
+        }
+
+        return questions;
+    }
+
+    #endregion
+
+    #region Admin Panel      
+    private async Task<bool> IsUserAdmin(long chatId)
+    {
+        try
+        {
+            var chatMember = await _client.GetChatMember(_channelId, chatId);
+            var isAdmin = chatMember.Status is ChatMemberStatus.Creator or ChatMemberStatus.Administrator;
+            Console.WriteLine($"Checking admin status for ChatId {chatId}: Status={chatMember.Status}, IsAdmin={isAdmin}");
+            return isAdmin;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error checking admin status: {ex.Message}");
+            return false;
+        }
+    }
+    
+    private async Task HandleAdminCommand(long chatId)
+    {
+        var isAdmin = await IsUserAdmin(chatId);
+        Console.WriteLine($"Admin command requested by ChatId {chatId}: IsAdmin={isAdmin}");
+        
+        if (!isAdmin)
+        {
+            await _client.SendMessage(chatId,
+                "❌ Бубахшед, шумо админ нестед! \nБарои админ шудан лутфан ба канал ҳамчун маъмур (админ) ё созанда (криейтор) илова шавед.");
+            return;
+        }
+        
+        var adminKeyboard = new ReplyKeyboardMarkup
+        {   
+            Keyboard = new List<List<KeyboardButton>>
+            {
+                new() { new KeyboardButton("📚 Интихоби фан") },
+                new() { new KeyboardButton("📊 Омор"), new KeyboardButton("📝 Саволҳо") },
+                new() { new KeyboardButton("⬅️ Бозгашт") }
+            },
+            ResizeKeyboard = true
+        };
+
+        await _client.SendMessage(chatId,
+            "Хуш омадед ба панели админ!\n" +
+            "Лутфан амалро интихоб кунед:",
+            replyMarkup: adminKeyboard);
     }
 
     #endregion

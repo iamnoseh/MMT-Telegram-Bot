@@ -1,4 +1,3 @@
-using System.Security.Cryptography.X509Certificates;
 using Microsoft.EntityFrameworkCore;
 using TelegramBot.Domain.DTOs;
 using TelegramBot.Domain.Entities;
@@ -7,61 +6,91 @@ namespace TelegramBot.Services.OptionServices;
 
 public class OptionService : IOptionService
 {
-    private readonly DataContext context;
-    public Task<bool> AddOptionsAsync(Option option)
+    private readonly DataContext _context;
+
+    public OptionService(DataContext context)
     {
-        throw new NotImplementedException();
+        _context = context;
     }
 
-    public async Task<GetOptionDTO> GetOptionAsync(int requestId)
-{
-    try
+    public async Task<GetOptionDTO> GetOptionByQuestionId(int questionId)
     {
-        var option = await context.Options.FirstOrDefaultAsync(x => x.OptionId == requestId);
-        if (option != null)
+        var option = await _context.Options
+            .FirstOrDefaultAsync(o => o.QuestionId == questionId);
+
+        if (option == null)
+            return null;
+
+        return new GetOptionDTO
         {
-            return new GetOptionDTO
-            {
-                FirstVariant = option.FirstVariant,
-                SecondVariant = option.SecondVariant,
-                ThirdVariant = option.ThirdVariant,
-                FourthVariant = option.FourthVariant
-            };
-        }
-        else
+            Id = option.Id,
+            QuestionId = option.QuestionId,
+            OptionA = option.OptionA,
+            OptionB = option.OptionB,
+            OptionC = option.OptionC,
+            OptionD = option.OptionD
+        };
+    }
+
+    public async Task<GetOptionDTO> CreateOption(int questionId, Option option)
+    {
+        // Санҷед, ки оё савол вуҷуд дорад
+        var question = await _context.Questions.FindAsync(questionId);
+        if (question == null)
+            return null;
+
+        option.QuestionId = questionId;
+        _context.Options.Add(option);
+        await _context.SaveChangesAsync();
+
+        return new GetOptionDTO
         {
-            throw new ArgumentException("Option not found");
-        }
+            Id = option.Id,
+            QuestionId = option.QuestionId,
+            OptionA = option.OptionA,
+            OptionB = option.OptionB,
+            OptionC = option.OptionC,
+            OptionD = option.OptionD
+        };
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error in GetOptionAsync: {ex.Message}");
-        throw; // Перебрасываем исключение для дальнейшей обработки
-    }
-}
 
-
-    public async Task<List<GetOptionDTO>> GetOptionsAsyncs()
+    public async Task<GetOptionDTO> UpdateOption(int questionId, Option option)
     {
-        var options =await context.Options.Select(x=> new GetOptionDTO
+        var existingOption = await _context.Options
+            .FirstOrDefaultAsync(o => o.QuestionId == questionId);
+
+        if (existingOption == null)
+            return null;
+
+        existingOption.OptionA = option.OptionA;
+        existingOption.OptionB = option.OptionB;
+        existingOption.OptionC = option.OptionC;
+        existingOption.OptionD = option.OptionD;
+        existingOption.CorrectAnswer = option.CorrectAnswer;
+
+        await _context.SaveChangesAsync();
+
+        return new GetOptionDTO
         {
-            FirstVariant = x.FirstVariant,
-            SecondVariant = x.SecondVariant,
-            ThirdVariant = x.ThirdVariant,
-            FourthVariant = x.FourthVariant,
-            Answer = x.Answer,
-        }).ToListAsync();
-        return new List<GetOptionDTO>(options);
+            Id = existingOption.Id,
+            QuestionId = existingOption.QuestionId,
+            OptionA = existingOption.OptionA,
+            OptionB = existingOption.OptionB,
+            OptionC = existingOption.OptionC,
+            OptionD = existingOption.OptionD
+        };
     }
 
-    public Task<bool> RemoveOptionsAsync(int requestId)
+    public async Task<bool> DeleteOption(int questionId)
     {
-        throw new NotImplementedException();
-    }
+        var option = await _context.Options
+            .FirstOrDefaultAsync(o => o.QuestionId == questionId);
 
-    public Task<bool> UpdateOptionsAsync(Option option)
-    {
-        throw new NotImplementedException();
-    }
+        if (option == null)
+            return false;
 
+        _context.Options.Remove(option);
+        await _context.SaveChangesAsync();
+        return true;
+    }
 }
