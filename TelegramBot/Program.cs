@@ -320,7 +320,7 @@ internal class TelegramBotHelper
 
                 case "⬅️ Бозгашт":
                     await _client.SendMessage(chatId,
-                        "Менюи асосī",
+                        "Менюи асосӣ",
                         replyMarkup: await GetMainButtonsAsync(chatId));
                     break;
 
