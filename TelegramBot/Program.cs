@@ -29,16 +29,12 @@ builder.Services.AddScoped<ISubjectService, SubjectService>();
 
 await using var app = builder.Build();
 
-// Apply migrations and seed subjects at startup
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<DataContext>();
     try
     {
-        // Apply any pending migrations
         db.Database.Migrate();
-
-        // Seed subjects if not already present
         SeedSubjects(db);
     }
     catch (Exception ex)
@@ -68,7 +64,6 @@ Task.Run(() => botHelper.StartBotAsync());
 
 app.Run();
 
-// Method to seed subjects into the database
 void SeedSubjects(DataContext db)
 {
     var subjects = new[]
@@ -1078,58 +1073,75 @@ internal class TelegramBotHelper
             var body = wordDoc.MainDocumentPart.Document.Body;
             var paragraphs = body.Elements<Paragraph>()
                                .Where(p => p.InnerText != null)
-                               .Select(p => p.InnerText)
+                               .Select(p => p.InnerText.Trim())
                                .Where(text => !string.IsNullOrWhiteSpace(text))
                                .ToList();
-            
-            if (paragraphs.Count < 5)
+
+            if (paragraphs.Count < 5) // Minimum 1 question + 4 options
             {
                 throw new Exception("Файл холī аст ё саволҳо нодуруст ворид шудаанд");
             }
 
-            for (int i = 0; i <= paragraphs.Count - 5; i += 5)
+            int i = 0;
+            while (i < paragraphs.Count)
             {
-                string questionText = paragraphs[i].Trim();
-
-                string[] variants = new string[4];
-                string correctAnswer = "";
-                for (int j = 0; j < 4; j++)
+                // Check for question delimiter "|| ... ||"
+                if (paragraphs[i].StartsWith("||") && paragraphs[i].EndsWith("||"))
                 {
-                    string line = paragraphs[i + j + 1].Trim();
-                    int idx = line.IndexOf(")");
-                    if (idx >= 0)
+                    string questionText = paragraphs[i].TrimStart('|').TrimEnd('|').Trim();
+                    if (i + 4 >= paragraphs.Count) // Ensure there are 4 options following
                     {
-                        line = line.Substring(idx + 1).Trim();
+                        throw new Exception($"Нокомӣ дар парсер кардани савол: '{questionText}' - камбуди вариантҳо.");
                     }
-                    if (line.EndsWith("--"))
+
+                    // Extract options (next 4 paragraphs)
+                    var options = new List<string>();
+                    string correctAnswer = null;
+                    for (int j = 1; j <= 4; j++)
                     {
-                        line = line.Substring(0, line.Length - 2).Trim();
-                        correctAnswer = line;
+                        string optionText = paragraphs[i + j].Trim();
+                        // Remove the option label (e.g., "А) ") if present
+                        int idx = optionText.IndexOf(")");
+                        if (idx >= 0)
+                        {
+                            optionText = optionText.Substring(idx + 1).Trim();
+                        }
+                        if (optionText.EndsWith("--"))
+                        {
+                            correctAnswer = optionText.TrimEnd('-').Trim();
+                        }
+                        options.Add(optionText.Replace("--", "").Trim()); // Remove -- from all options for consistency
                     }
-                    variants[j] = line;
+
+                    if (string.IsNullOrEmpty(correctAnswer))
+                    {
+                        throw new Exception($"Ҷавоби дуруст барои савол '{questionText}' ёфт нашуд.");
+                    }
+
+                    var questionDto = new QuestionDTO
+                    {
+                        QuestionText = questionText,
+                        SubjectId = subjectId,
+                        OptionA = options[0],
+                        OptionB = options[1],
+                        OptionC = options[2],
+                        OptionD = options[3],
+                        CorrectAnswer = correctAnswer
+                    };
+
+                    questions.Add(questionDto);
+                    i += 5; // Move to next question (skip question + 4 options)
                 }
-
-                if (string.IsNullOrEmpty(correctAnswer))
-                    throw new Exception($"Ҷавоби дуруст барои савол '{questionText}' ёфт нашуд.");
-
-                var questionDto = new QuestionDTO
+                else
                 {
-                    QuestionText = questionText,
-                    SubjectId = subjectId,
-                    OptionA = variants[0],
-                    OptionB = variants[1],
-                    OptionC = variants[2],
-                    OptionD = variants[3],
-                    CorrectAnswer = correctAnswer
-                };
-
-                questions.Add(questionDto);
+                    i++; // Skip non-question paragraphs
+                }
             }
-        }
 
-        if (questions.Count == 0)
-        {
-            throw new Exception("Дар файл ягон савол ёфт нашуд");
+            if (questions.Count == 0)
+            {
+                throw new Exception("Дар файл ягон савол бо аломати || ёфт нашуд");
+            }
         }
 
         return questions;
