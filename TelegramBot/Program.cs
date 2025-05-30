@@ -107,7 +107,7 @@ internal class TelegramBotHelper
     private readonly Dictionary<long, RegistrationInfo> _pendingRegistrations = new();
     private readonly Dictionary<long, int> _userScores = new();
     private readonly Dictionary<long, int> _userQuestions = new();
-    private readonly Dictionary<long, bool> _pendingBroadcast = new(); // Track admins waiting to send broadcast
+    private readonly Dictionary<long, bool> _pendingBroadcast = new();
     private const int MaxQuestions = 10;
     private readonly Dictionary<long, int> _userCurrentSubject = new();
 
@@ -312,7 +312,7 @@ internal class TelegramBotHelper
 
                 case "🧪 Химия":
                 case "🔬 Биология":
-                case "📖 Забони тоҷикӣ":
+                case "📖 Забони тоҷикī":
                 case "🌍 English":
                 case "📜 Таърих":
                     await HandleSubjectSelectionAsync(chatId, text);
@@ -320,7 +320,7 @@ internal class TelegramBotHelper
 
                 case "⬅️ Бозгашт":
                     await _client.SendMessage(chatId,
-                        "Менюи асосӣ",
+                        "Менюи асосī",
                         replyMarkup: await GetMainButtonsAsync(chatId));
                     break;
 
@@ -340,6 +340,32 @@ internal class TelegramBotHelper
                     {
                         await _client.SendMessage(chatId,
                             "❌ Танҳо админҳо метавонанд паём фиристанд!");
+                    }
+                    break;
+
+                case "📊 Омор":
+                    if (await IsUserAdminAsync(chatId))
+                    {
+                        await HandleStatisticsCommandAsync(chatId);
+                    }
+                    else
+                    {
+                        await _client.SendMessage(chatId,
+                            "❌ Танҳо админҳо метавонанд оморро бубинанд!");
+                    }
+                    break;
+
+                case "📝 Саволҳо":
+                    if (await IsUserAdminAsync(chatId))
+                    {
+                        await _client.SendMessage(chatId,
+                            "Функсияи 'Саволҳо' ҳанӯз амалӣ нашудааст.",
+                            replyMarkup: await GetAdminButtonsAsync());
+                    }
+                    else
+                    {
+                        await _client.SendMessage(chatId,
+                            "❌ Танҳо админҳо метавонанд саволҳоро бубинанд!");
                     }
                     break;
 
@@ -458,7 +484,7 @@ internal class TelegramBotHelper
         {
             Console.WriteLine($"Error saving user registration: {ex.Message}");
             await _client.SendMessage(chatId,
-                "Дар сабти маълумот хатое рӯй дод. Лутфан баъдтар кӯшиш кунед.");
+                "Дар сабти маълумот хатое рūй дод. Лутфан баъдтар кūшиш намоед.");
         }
         finally
         {
@@ -512,7 +538,7 @@ internal class TelegramBotHelper
         {
             "🧪 Химия" => 1,
             "🔬 Биология" => 2,
-            "📖 Забони тоҷикӣ" => 3,
+            "📖 Забони тоҷикī" => 3,
             "🌍 English" => 4,
             "📜 Таърих" => 5,
             _ => 0
@@ -691,7 +717,7 @@ internal class TelegramBotHelper
         else
         {
             await _client.EditMessageTextAsync(chatId, messageId,
-                $"❌ Афсӯс! Ҷавоби шумо нодуруст!\n" +
+                $"❌ Афсūс! Ҷавоби шумо нодуруст!\n" +
                 $"💡 Ҷавоби дуруст: {correctAnswer} буд.");
         }
 
@@ -760,7 +786,7 @@ internal class TelegramBotHelper
 
         if (topUsers.Count == 0)
         {
-            await _client.SendMessage(chatId, "Лист холӣ аст!");
+            await _client.SendMessage(chatId, "Лист холī аст!");
             return;
         }
 
@@ -775,7 +801,7 @@ internal class TelegramBotHelper
             {
                 1 => "🥇", // Зард (тилло)
                 2 => "🥈", // Нуқра
-                3 => "🥉", // Биринҷӣ
+                3 => "🥉", // Биринҷī
                 <= 10 => "🔹", // Кабуд
                 _ => "⚪" // Сафед (бе ранг)
             };
@@ -818,7 +844,7 @@ internal class TelegramBotHelper
         else
         {
             await _client.SendMessage(chatId,
-                "Шумо ҳанӯз сабт нашудаед. Лутфан барои сабт /register-ро пахш кунед.");
+                "Шумо ҳанūз сабт нашудаед. Лутфан барои сабт /register-ро пахш кунед.");
         }
     }
 
@@ -830,7 +856,7 @@ internal class TelegramBotHelper
                           "Саволи нав - барои гирифтани савол\n" +
                           "Top - барои дидани топ 50 корбар\n" +
                           "Profile - барои дидани маълумоти шахсии шумо\n" +
-                          "Help - барои дидани ин рӯйхат\n";
+                          "Help - барои дидани ин рūйхат\n";
         await _client.SendMessage(chatId, helpText);
     }
 
@@ -857,7 +883,7 @@ internal class TelegramBotHelper
         if (string.IsNullOrWhiteSpace(messageText))
         {
             await _client.SendMessage(chatId,
-                "❌ Паём набояд холӣ бошад! Лутфан паёми дигар ворид кунед.");
+                "❌ Паём набояд холī бошад! Лутфан паёми дигар ворид кунед.");
             return;
         }
 
@@ -875,7 +901,7 @@ internal class TelegramBotHelper
                 try
                 {
                     await _client.SendMessage(userChatId,
-                        $"📢 :\n{messageText}");
+                        $"📢 Паёми муҳим:\n{messageText}");
                     sentCount++;
                     await Task.Delay(50); // Avoid Telegram rate limits
                 }
@@ -893,7 +919,51 @@ internal class TelegramBotHelper
         {
             Console.WriteLine($"Error broadcasting message: {ex.Message}");
             await _client.SendMessage(chatId,
-                "❌ Хатогӣ ҳангоми фиристодани паём ба корбарон. Лутфан боз кӯшиш кунед.",
+                "❌ Хатогī ҳангоми фиристодани паём ба корбарон. Лутфан боз кūшиш кунед.",
+                replyMarkup: await GetAdminButtonsAsync());
+        }
+    }
+
+    #endregion
+
+    #region Statistics
+
+    private async Task HandleStatisticsCommandAsync(long chatId)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+
+            // Count active users
+            var activeUsersCount = await dbContext.Users.CountAsync();
+
+            // Count questions per subject
+            var questionCounts = await dbContext.Questions
+                .GroupBy(q => q.SubjectId)
+                .Select(g => new { SubjectId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.SubjectId, g => g.Count);
+
+            // Get subject names
+            var subjects = await dbContext.Subjects.ToListAsync();
+            var subjectStats = subjects.Select(s => 
+                $"{s.Name}: {(questionCounts.TryGetValue(s.Id, out int count) ? count : 0)} савол").ToList();
+
+            // Format statistics message
+            var statsMessage = "<b>📊 Омор</b>\n\n" +
+                              $"👥 <b>Корбарони фаъол</b>: {activeUsersCount} нафар\n" +
+                              $"\n📚 <b>Миқдори саволҳо аз рӯи фанҳо</b>:\n" +
+                              string.Join("\n", subjectStats);
+
+            await _client.SendMessage(chatId, statsMessage, 
+                parseMode: ParseMode.Html, 
+                replyMarkup: await GetAdminButtonsAsync());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error retrieving statistics: {ex.Message}");
+            await _client.SendMessage(chatId,
+                "❌ Хатогī ҳангоми гирифтани омор. Лутфан боз кūшиш кунед.",
                 replyMarkup: await GetAdminButtonsAsync());
         }
     }
@@ -957,13 +1027,13 @@ internal class TelegramBotHelper
         }
         catch (Exception ex)
         {
-            var errorMessage = $"❌ Хатогӣ: {ex.Message}";
+            var errorMessage = $"❌ Хатогī: {ex.Message}";
             await _client.SendMessage(chatId, errorMessage);
 
-            await NotifyAdminsAsync($"❌ Хатогӣ ҳангоми коркарди файл:\n" +
+            await NotifyAdminsAsync($"❌ Хатогī ҳангоми коркарди файл:\n" +
                                    $"Файл: {fileName}\n" +
                                    $"Корбар: {username}\n" +
-                                   $"Хатогӣ: {ex.Message}");
+                                   $"Хатогī: {ex.Message}");
         }
     }
 
@@ -1002,7 +1072,7 @@ internal class TelegramBotHelper
         {
             if (wordDoc.MainDocumentPart?.Document?.Body == null)
             {
-                throw new Exception("Файл холӣ аст ё шакли нодуруст дорад");
+                throw new Exception("Файл холī аст ё шакли нодуруст дорад");
             }
 
             var body = wordDoc.MainDocumentPart.Document.Body;
@@ -1014,7 +1084,7 @@ internal class TelegramBotHelper
             
             if (paragraphs.Count < 5)
             {
-                throw new Exception("Файл холӣ аст ё саволҳо нодуруст ворид шудаанд");
+                throw new Exception("Файл холī аст ё саволҳо нодуруст ворид шудаанд");
             }
 
             for (int i = 0; i <= paragraphs.Count - 5; i += 5)
