@@ -53,14 +53,14 @@ app.MapGet("/questions", async (DataContext context) =>
 await app.RunAsync();
 
 void SeedSubjects(DataContext db)
-{
-    var subjects = new[]
+{    var subjects = new[]
     {
         new Subject { Id = 1, Name = "Химия" },
         new Subject { Id = 2, Name = "Биология" },
         new Subject { Id = 3, Name = "Забони тоҷикӣ" },
         new Subject { Id = 4, Name = "English" },
-        new Subject { Id = 5, Name = "Таърих" }
+        new Subject { Id = 5, Name = "Таърих" },
+        new Subject { Id = 6, Name = "География" }
     };
 
     foreach (var subject in subjects)

@@ -218,12 +218,11 @@ public class TelegramBotHostedService : IHostedService
 
                 case "📚 Интихоби фан":
                     var subjectKeyboard = new ReplyKeyboardMarkup
-                    {
-                        Keyboard = new List<List<KeyboardButton>>
+                    {                        Keyboard = new List<List<KeyboardButton>>
                         {
                             new() { new KeyboardButton("🧪 Химия"), new KeyboardButton("🔬 Биология") },
                             new() { new KeyboardButton("📖 Забони тоҷикӣ"), new KeyboardButton("🌍 English") },
-                            new() { new KeyboardButton("📜 Таърих") },
+                            new() { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
                             new() { new KeyboardButton("⬅️ Бозгашт") }
                         },
                         ResizeKeyboard = true
@@ -232,13 +231,12 @@ public class TelegramBotHostedService : IHostedService
                         "Лутфан фанро интихоб кунед:",
                         replyMarkup: subjectKeyboard,
                         cancellationToken: cancellationToken);
-                    break;
-
-                case "🧪 Химия":
+                    break;                case "🧪 Химия":
                 case "🔬 Биология":
-                case "📖 Забони тоҷикī":
+                case "📖 Забони тоҷикӣ":
                 case "🌍 English":
                 case "📜 Таърих":
+                case "🌍 География":
                     await HandleSubjectSelectionAsync(chatId, text, cancellationToken);
                     break;
 
@@ -467,14 +465,14 @@ public class TelegramBotHostedService : IHostedService
     }
 
     private async Task HandleSubjectSelectionAsync(long chatId, string text, CancellationToken cancellationToken)
-    {
-        int subjectId = text switch
+    {        int subjectId = text switch
         {
             "🧪 Химия" => 1,
             "🔬 Биология" => 2,
-            "📖 Забони тоҷикī" => 3,
+            "📖 Забони тоҷикӣ" => 3,
             "🌍 English" => 4,
             "📜 Таърих" => 5,
+            "🌍 География" => 6,
             _ => 0
         };
 
