@@ -257,6 +257,16 @@ public class TelegramBotHostedService : IHostedService
                         await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд паём фиристанд!", cancellationToken: cancellationToken);
                     }
                     break;
+                case "📊 Омор":
+                if (await IsUserAdminAsync(chatId, cancellationToken))
+                {
+                    await HandleStatisticsCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
+                }
+                else
+                {
+                    await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд оморро бубинанд!", cancellationToken: cancellationToken);
+                }
+                break;
 
                 default:
                     await _client.SendMessage(chatId, "Фармони нодуруст!", cancellationToken: cancellationToken);
@@ -832,7 +842,7 @@ public class TelegramBotHostedService : IHostedService
                 }
                 await Task.Delay(500, cancellationToken);
             }
-            var resultMessage = $"<b>📬 Фиристодани паём ба итмом расид!</b>\n\n✅ Бо муваффақият фиристода шуд: {successCount}\n❌ Ноком: {failedCount}\n📊 Фоизи муваффақият: {((double)successCount / users.Count * 100):F1}%";
+            var resultMessage = $"<b>📬 Фиристодани паём ба иттом расид!</b>\n\n✅ Бо муваффақият фиристода шуд: {successCount}\n❌ Ноком: {failedCount}\n📊 Фоизи муваффақият: {((double)successCount / users.Count * 100):F1}%";
             await _client.SendMessage(chatId, resultMessage, parseMode: ParseMode.Html, replyMarkup: GetAdminButtons(), cancellationToken: cancellationToken);
             await NotifyAdminsAsync($"<b>📢 Натиҷаи фиристодани паёми оммавӣ:</b>\n\n{resultMessage}\n\n🕒 Вақт: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC", cancellationToken);
         }
@@ -844,6 +854,71 @@ public class TelegramBotHostedService : IHostedService
         finally
         {
             CleanupBroadcastState(chatId);
+        }
+    }
+
+    // Statistics
+    private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+
+            // Get all user stats
+            var totalUsers = await dbContext.Users.CountAsync(cancellationToken);
+            var activeUsers = await dbContext.UserResponses
+                .Where(r => r.CreatedAt >= DateTime.UtcNow.AddDays(-7))
+                .Select(r => r.ChatId)
+                .Distinct()
+                .CountAsync(cancellationToken);
+
+            // Get questions per subject
+            var subjects = await dbContext.Subjects.ToListAsync(cancellationToken);
+            var questionCounts = await dbContext.Questions
+                .GroupBy(q => q.SubjectId)
+                .Select(g => new { SubjectId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.SubjectId, g => g.Count, cancellationToken);
+
+            // Calculate total questions
+            var totalQuestions = await dbContext.Questions.CountAsync(cancellationToken);
+
+            // Format subject stats ordered by question count
+            var subjectStats = subjects
+                .OrderByDescending(s => questionCounts.GetValueOrDefault(s.Id, 0))
+                .Select(s => $"• {s.Name}: {(questionCounts.TryGetValue(s.Id, out int count) ? count : 0)} савол")
+                .ToList();
+
+            // Build nicely formatted message
+            var statsMessage = 
+                "<b>📊 ОМОРИ БОТ</b>\n" +
+                "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
+                "<b>👥 Корбарон:</b>\n" +
+                $"• Ҳамагӣ: {totalUsers:N0} нафар\n" +
+                $"• Фаъол (7 рӯзи охир): {activeUsers:N0} нафар\n" +
+                "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
+                "<b>📚 Савол ва тестҳо:</b>\n" +
+                $"• Ҳамагӣ саволҳо: {totalQuestions:N0}\n" +
+                "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
+                "<b>📝 Саволҳо аз рӯи фанҳо:</b>\n" +
+                $"{string.Join("\n", subjectStats)}";
+
+            // Send formatted stats
+            await _client.SendMessage(
+                chatId,
+                statsMessage,
+                parseMode: ParseMode.Html,
+                replyMarkup: GetAdminButtons(),
+                cancellationToken: cancellationToken
+            );
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Хатогӣ дар гирифтани омор: {ex.Message}");
+            await _client.SendMessage(chatId,
+                "❌ Хатогӣ ҳангоми гирифтани омор. Лутфан, баъдтар боз кӯшиш кунед.",
+                replyMarkup: GetAdminButtons(),
+                cancellationToken: cancellationToken);
         }
     }
 
