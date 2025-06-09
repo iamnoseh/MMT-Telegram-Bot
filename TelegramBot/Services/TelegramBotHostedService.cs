@@ -30,9 +30,9 @@ public class TelegramBotHostedService : IHostedService
     private readonly Dictionary<long, bool> _pendingBroadcast = new();
     private readonly Dictionary<long, int> _userCurrentSubject = new();
     private readonly Dictionary<long, (int QuestionId, DateTime StartTime, bool IsAnswered, IReplyMarkup Markup, int MessageId)> _activeQuestions = new();
-    private readonly Dictionary<long, CancellationTokenSource> _questionTimers = new();
-    private const int MaxQuestions = 10;
-    private const int QuestionTimeLimit = 15;
+    private readonly Dictionary<long, CancellationTokenSource> _questionTimers = new();    private const int MaxQuestions = 10;
+    private const int QuestionTimeLimit = 20;
+    private readonly HashSet<int> NoTimerSubjects = new() { 1, 8 }; // 1 - Химия, 8 - Физика
 
     // Конструктор барои ибтидои бот
     public TelegramBotHostedService(IServiceScopeFactory scopeFactory, IConfiguration configuration)
@@ -440,22 +440,33 @@ public class TelegramBotHostedService : IHostedService
             {
                 oldTimer.Cancel();
                 _questionTimers.Remove(chatId);
-            }
-
-            var markup = GetButtons(question.QuestionId);
-            var sentMessage = await _client.SendMessage(chatId,
-                $"<b>📚 Фан: {question.SubjectName}</b>\n\n" +
+            }            var markup = GetButtons(question.QuestionId);
+            var messageText = $"<b>📚 Фан: {question.SubjectName}</b>\n\n" +
                 $"❓ {question.QuestionText}\n\n" +
                 $"A) {question.FirstOption}\n" +
                 $"B) {question.SecondOption}\n" +
                 $"C) {question.ThirdOption}\n" +
-                $"D) {question.FourthOption}\n\n" +
-                $"<i>⏱ Вақт: {QuestionTimeLimit} сония</i>",
-                parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
-            _activeQuestions[chatId] = (question.QuestionId, DateTime.UtcNow, false, markup, sentMessage.MessageId);
-            var cts = new CancellationTokenSource();
-            _questionTimers[chatId] = cts;
-            _ = UpdateQuestionTimer(chatId, cts.Token);
+                $"D) {question.FourthOption}";
+
+            // Добавляем таймер только для предметов, которые не в списке NoTimerSubjects
+            if (!NoTimerSubjects.Contains(currentSubject))
+            {
+                messageText += $"\n\n<i>⏱ Вақт: {QuestionTimeLimit} сония</i>";
+            }
+
+            var sentMessage = await _client.SendMessage(chatId,
+                messageText,
+                parseMode: ParseMode.Html, 
+                replyMarkup: markup, 
+                cancellationToken: cancellationToken);            _activeQuestions[chatId] = (question.QuestionId, DateTime.UtcNow, false, markup, sentMessage.MessageId);
+            
+            // Запускаем таймер только для предметов, которые не в списке NoTimerSubjects
+            if (!NoTimerSubjects.Contains(currentSubject))
+            {
+                var cts = new CancellationTokenSource();
+                _questionTimers[chatId] = cts;
+                _ = UpdateQuestionTimer(chatId, cts.Token);
+            }
         }
         else
         {
