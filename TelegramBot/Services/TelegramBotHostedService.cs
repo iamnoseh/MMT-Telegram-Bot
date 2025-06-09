@@ -31,8 +31,8 @@ public class TelegramBotHostedService : IHostedService
     private readonly Dictionary<long, int> _userCurrentSubject = new();
     private readonly Dictionary<long, (int QuestionId, DateTime StartTime, bool IsAnswered, IReplyMarkup Markup, int MessageId)> _activeQuestions = new();
     private readonly Dictionary<long, CancellationTokenSource> _questionTimers = new();    private const int MaxQuestions = 10;
-    private const int QuestionTimeLimit = 20;
-    private readonly HashSet<int> NoTimerSubjects = new() { 1, 8 }; // 1 - Химия, 8 - Физика
+    private const int QuestionTimeLimit = 30;
+    private readonly HashSet<int> NoTimerSubjects = new() { 1, 8, 10 }; // 1 - Химия, 8 - Физика, 10 - Математика
 
     // Конструктор барои ибтидои бот
     public TelegramBotHostedService(IServiceScopeFactory scopeFactory, IConfiguration configuration)
@@ -209,8 +209,7 @@ public class TelegramBotHostedService : IHostedService
                     await HandleHelpCommandAsync(chatId, cancellationToken);
                     break;
 
-                case "📚 Интихоби фан":
-                    var subjectKeyboard = new ReplyKeyboardMarkup
+                case "📚 Интихоби фан":                    var subjectKeyboard = new ReplyKeyboardMarkup
                     {
                         Keyboard = new List<List<KeyboardButton>>
                         {
@@ -218,7 +217,8 @@ public class TelegramBotHostedService : IHostedService
                             new() { new KeyboardButton("📖 Забони тоҷикӣ"), new KeyboardButton("🌍 Забони англисӣ") },
                             new() { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
                             new() { new KeyboardButton("📚 Адабиёти тоҷик"), new KeyboardButton("⚛️ Физика") },
-                            new() { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("⬅️ Бозгашт") }
+                            new() { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("📐 Математика") },
+                            new() { new KeyboardButton("⬅️ Бозгашт") }
                         },
                         ResizeKeyboard = true
                     };
@@ -234,6 +234,7 @@ public class TelegramBotHostedService : IHostedService
                 case "📚 Адабиёти тоҷик":
                 case "⚛️ Физика":
                 case "🇷🇺 Забони русӣ":
+                case "📐 Математика":
                     await HandleSubjectSelectionAsync(chatId, text, cancellationToken);
                     break;
 
@@ -381,8 +382,7 @@ public class TelegramBotHostedService : IHostedService
 
     // Интихоби фан
     private async Task HandleSubjectSelectionAsync(long chatId, string text, CancellationToken cancellationToken)
-    {
-        int subjectId = text switch
+    {        int subjectId = text switch
         {
             "🧪 Химия" => 1,
             "🔬 Биология" => 2,
@@ -393,6 +393,7 @@ public class TelegramBotHostedService : IHostedService
             "📚 Адабиёти тоҷик" => 7,
             "⚛️ Физика" => 8,
             "🇷🇺 Забони русӣ" => 9,
+            "📐 Математика" => 10,
             _ => 0
         };
         if (subjectId == 0) return;
