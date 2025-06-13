@@ -11,6 +11,7 @@ public class User
     public int Score { get; set; }
     public bool IsLeft { get; set; } = false;
     public bool IsAdmin { get; set; } = false;
+    public bool IsActive { get; set; } = true;
     // Алоқа бо ҷавобҳои корбар
     public List<UserResponse> UserResponses { get; set; } = new();
 
