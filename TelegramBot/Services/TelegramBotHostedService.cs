@@ -98,33 +98,72 @@ public class TelegramBotHostedService : IHostedService
         return Task.CompletedTask;
     }
 
-    private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider serviceProvider,
-        CancellationToken cancellationToken)
+    #region HandleStatisticsCommandAsync
+
+private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+{
+    var dbContext = serviceProvider.GetRequiredService<DataContext>();
+
+    // Омори корбарон
+    var userStats = await dbContext.Users
+        .GroupBy(u => true)
+        .Select(g => new
+        {
+            TotalUsers = g.Count(),
+            ActiveUsers = g.Count(u => u.IsActive && !u.IsLeft),
+            InactiveUsers = g.Count(u => !u.IsActive && !u.IsLeft),
+            LeftUsers = g.Count(u => u.IsLeft)
+        })
+        .FirstOrDefaultAsync(cancellationToken) ?? new { TotalUsers = 0, ActiveUsers = 0, InactiveUsers = 0, LeftUsers = 0 };
+
+    // Омори ҷавобҳо
+    var totalResponses = await dbContext.UserResponses.CountAsync(cancellationToken);
+    var correctResponses = await dbContext.UserResponses.CountAsync(ur => ur.IsCorrect, cancellationToken);
+    double correctPercentage = totalResponses > 0 ? (double)correctResponses / totalResponses * 100 : 0;
+
+    // Омори фанҳо
+    var subjectsWithQuestions = await dbContext.Subjects
+        .Select(s => new
+        {
+            s.Name,
+            QuestionCount = s.Questions.Count()
+        })
+        .ToListAsync(cancellationToken);
+
+    // Миқдори умумии саволҳо
+    var totalQuestions = await dbContext.Questions.CountAsync(cancellationToken);
+
+    // Форматкунии омори фанҳо
+    var orderedSubjects = subjectsWithQuestions.OrderByDescending(s => s.QuestionCount).ToList();
+    var subjectsLines = new List<string>();
+    for (int i = 0; i < orderedSubjects.Count; i++)
     {
-        try
-        {
-            var dbContext = serviceProvider.GetRequiredService<DataContext>();
-            var totalUsers = await dbContext.Users.CountAsync(cancellationToken);
-            var activeUsers = await dbContext.Users.CountAsync(u => u.IsActive && !u.IsLeft, cancellationToken);
-            var totalQuestions = await dbContext.Questions.CountAsync(cancellationToken);
-            var totalSubjects = await dbContext.Subjects.CountAsync(cancellationToken);
-            var totalDuels = await dbContext.DuelGames.CountAsync(cancellationToken);
-
-            string stats = $"<b>📊 Омор:</b>\n" +
-                           $"👥 Ҳамагӣ корбарон: {totalUsers}\n" +
-                           $"✅ Корбарони фаъол: {activeUsers}\n" +
-                           $"❓ Саволҳо: {totalQuestions}\n" +
-                           $"📚 Фанҳо: {totalSubjects}\n" +
-                           $"🎮 Мусобиқаҳо: {totalDuels}";
-
-            await _client.SendMessage(chatId, stats, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            await _client.SendMessage(chatId, "❌ Хатогӣ ҳангоми гирифтани омор.", cancellationToken: cancellationToken);
-            Console.WriteLine($"Error in HandleStatisticsCommandAsync: {ex.Message}");
-        }
+        var prefix = i == orderedSubjects.Count - 1 ? "└" : "├";
+        subjectsLines.Add($"   {prefix} {orderedSubjects[i].Name}: {orderedSubjects[i].QuestionCount} савол");
     }
+    var subjectsStats = string.Join("\n", subjectsLines);
+
+    // Паёми хулоса бо иловаи миқдори умумии саволҳо
+    var summaryMessage =
+        $"👥 Омори корбарон:\n" +
+        $"├ 👤 Ҳамагӣ корбарон: {userStats.TotalUsers}\n" +
+        $"├ ✅ Корбарони фаъол: {userStats.ActiveUsers}\n" +
+        $"├ ⏸️ Корбарони ғайрифаъол: {userStats.InactiveUsers}\n" +
+        $"└ 🚪 Корбарони рафта: {userStats.LeftUsers}\n\n" +
+        $"📋 Омори ҷавобҳо:\n" +
+        $"├ 📝 Ҳамагӣ ҷавобҳо: {totalResponses:N0}\n" +
+        $"├ ✅ Ҷавобҳои дуруст: {correctResponses:N0}\n" +
+        $"└ 📊 Фоизи дурустӣ: {correctPercentage:F1}%\n\n" +
+        $"📚 Омори фанҳо:\n" +
+        $"├ 📝 Ҳамагӣ саволҳо: {totalQuestions}\n" +
+        $"└ 📚 Фанҳо ({orderedSubjects.Count}):\n" +
+        subjectsStats;
+
+    // Фиристодани паём ба чати администратор
+    await _client.SendMessage(chatId, summaryMessage, cancellationToken: cancellationToken);
+}
+
+    #endregion
 
     private async Task HandleUpdateAsync(Update update, CancellationToken cancellationToken)
     {
@@ -373,17 +412,13 @@ public class TelegramBotHostedService : IHostedService
                     }
 
                     break;
+
                 case "💬 Тамос бо админ":
                     var adminButton = new InlineKeyboardMarkup(new[]
-                    {
-                        new[] { InlineKeyboardButton.WithUrl("💬 Тамос бо админ", "https://t.me/iamnoseh") }
-                    });
-                    await _client.SendMessage(
-                        chatId,
+                        { new[] { InlineKeyboardButton.WithUrl("💬 Тамос бо админ", "https://t.me/iamnoseh") } });
+                    await _client.SendMessage(chatId,
                         "Барои фиристодани савол ё дархост ба админ, ба ин суроға муроҷиат кунед:",
-                        replyMarkup: adminButton,
-                        cancellationToken: cancellationToken
-                    );
+                        replyMarkup: adminButton, cancellationToken: cancellationToken);
                     break;
 
                 case "👥 Даъвати дӯстон":
@@ -417,8 +452,7 @@ public class TelegramBotHostedService : IHostedService
                     var dbContext = duelScope.ServiceProvider.GetRequiredService<DataContext>();
                     if (action == "accept")
                     {
-                        var subject = await dbContext.Subjects
-                            .Include(s => s.Questions)
+                        var subject = await dbContext.Subjects.Include(s => s.Questions)
                             .FirstOrDefaultAsync(s => s.Id == subjectId, cancellationToken);
                         if (subject == null)
                         {
@@ -441,11 +475,8 @@ public class TelegramBotHostedService : IHostedService
                         };
                         dbContext.DuelGames.Add(game);
                         await dbContext.SaveChangesAsync(cancellationToken);
-
                         _activeGames[game.Id] = game;
-
                         await HandleDuelGameAsync(game, cancellationToken);
-
                         await _client.SendMessage(inviterChatId,
                             "🎮 Бозингар даъвати шуморо қабул кард! Бозӣ оғоз шуд!",
                             cancellationToken: cancellationToken);
@@ -471,7 +502,6 @@ public class TelegramBotHostedService : IHostedService
                 cancellationToken);
         }
     }
-
 
     private async Task<bool> IsUserRegisteredAsync(long chatId, IServiceProvider serviceProvider,
         CancellationToken cancellationToken)
@@ -535,13 +565,17 @@ public class TelegramBotHostedService : IHostedService
             var dbContext = serviceProvider.GetRequiredService<DataContext>();
             var user = new User
             {
-                ChatId = chatId, Username = regInfo.AutoUsername, Name = regInfo.Name,
-                PhoneNumber = regInfo.Contact.PhoneNumber, City = regInfo.City, Score = 0
+                ChatId = chatId,
+                Username = regInfo.AutoUsername,
+                Name = regInfo.Name,
+                PhoneNumber = regInfo.Contact.PhoneNumber,
+                City = regInfo.City,
+                Score = 0,
+                RegisteredAt = DateTime.UtcNow
             };
             dbContext.Users.Add(user);
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            // Санҷиш ва қабули даъват
             var invitation =
                 await dbContext.Invitations.FirstOrDefaultAsync(i => i.InviteeChatId == chatId && i.Status == "pending",
                     cancellationToken);
@@ -554,7 +588,7 @@ public class TelegramBotHostedService : IHostedService
                         cancellationToken);
                 if (inviter != null)
                 {
-                    inviter.Score += 5; // Илова кардани 5 бал ба даъваткунанда
+                    inviter.Score += 5;
                     await dbContext.SaveChangesAsync(cancellationToken);
                     await _client.SendMessage(inviter.ChatId,
                         "🎉 Дӯсти шумо бо пайванди даъват сабти ном шуд! Шумо 5 бал гирифтед!",
@@ -692,11 +726,8 @@ public class TelegramBotHostedService : IHostedService
                 messageText += $"\n\n<i>⏱ Вақт: {QuestionTimeLimit} сония</i>";
             }
 
-            var sentMessage = await _client.SendMessage(chatId,
-                messageText,
-                parseMode: ParseMode.Html,
-                replyMarkup: markup,
-                cancellationToken: cancellationToken);
+            var sentMessage = await _client.SendMessage(chatId, messageText, parseMode: ParseMode.Html,
+                replyMarkup: markup, cancellationToken: cancellationToken);
             _activeQuestions[chatId] = (question.QuestionId, DateTime.UtcNow, false, markup, sentMessage.MessageId);
 
             if (!NoTimerSubjects.Contains(currentSubject))
@@ -807,8 +838,8 @@ public class TelegramBotHostedService : IHostedService
         }
 
         var callbackData = callbackQuery.Data?.Split('_');
-        if (callbackData == null || callbackData.Length < 2 || !int.TryParse(callbackData[0], out int questionId))
-            return;
+        if (callbackData == null || callbackData.Length < 2 ||
+            !int.TryParse(callbackData[0], out int questionId)) return;
 
         var question = await questionService.GetQuestionById(questionId);
         if (question == null)
@@ -874,7 +905,10 @@ public class TelegramBotHostedService : IHostedService
 
             var userResponse = new UserResponse
             {
-                ChatId = chatId, QuestionId = questionId, SelectedOption = selectedOptionText, IsCorrect = isCorrect
+                ChatId = chatId,
+                QuestionId = questionId,
+                SelectedOption = selectedOptionText,
+                IsCorrect = isCorrect
             };
             await responseService.SaveUserResponse(userResponse);
 
@@ -916,56 +950,24 @@ public class TelegramBotHostedService : IHostedService
         var row2 = new List<InlineKeyboardButton>();
 
         if (selectedOption == "A")
-        {
             row1.Add(InlineKeyboardButton.WithCallbackData($"{(isCorrect ? "✅" : "❌")} A", "dummy"));
-        }
-        else if (correctOption == "A")
-        {
-            row1.Add(InlineKeyboardButton.WithCallbackData("✅ A", "dummy"));
-        }
-        else
-        {
-            row1.Add(InlineKeyboardButton.WithCallbackData("▫️ A", "dummy"));
-        }
+        else if (correctOption == "A") row1.Add(InlineKeyboardButton.WithCallbackData("✅ A", "dummy"));
+        else row1.Add(InlineKeyboardButton.WithCallbackData("▫️ A", "dummy"));
 
         if (selectedOption == "B")
-        {
             row1.Add(InlineKeyboardButton.WithCallbackData($"{(isCorrect ? "✅" : "❌")} B", "dummy"));
-        }
-        else if (correctOption == "B")
-        {
-            row1.Add(InlineKeyboardButton.WithCallbackData("✅ B", "dummy"));
-        }
-        else
-        {
-            row1.Add(InlineKeyboardButton.WithCallbackData("▫️ B", "dummy"));
-        }
+        else if (correctOption == "B") row1.Add(InlineKeyboardButton.WithCallbackData("✅ B", "dummy"));
+        else row1.Add(InlineKeyboardButton.WithCallbackData("▫️ B", "dummy"));
 
         if (selectedOption == "C")
-        {
             row2.Add(InlineKeyboardButton.WithCallbackData($"{(isCorrect ? "✅" : "❌")} C", "dummy"));
-        }
-        else if (correctOption == "C")
-        {
-            row2.Add(InlineKeyboardButton.WithCallbackData("✅ C", "dummy"));
-        }
-        else
-        {
-            row2.Add(InlineKeyboardButton.WithCallbackData("▫️ C", "dummy"));
-        }
+        else if (correctOption == "C") row2.Add(InlineKeyboardButton.WithCallbackData("✅ C", "dummy"));
+        else row2.Add(InlineKeyboardButton.WithCallbackData("▫️ C", "dummy"));
 
         if (selectedOption == "D")
-        {
             row2.Add(InlineKeyboardButton.WithCallbackData($"{(isCorrect ? "✅" : "❌")} D", "dummy"));
-        }
-        else if (correctOption == "D")
-        {
-            row2.Add(InlineKeyboardButton.WithCallbackData("✅ D", "dummy"));
-        }
-        else
-        {
-            row2.Add(InlineKeyboardButton.WithCallbackData("▫️ D", "dummy"));
-        }
+        else if (correctOption == "D") row2.Add(InlineKeyboardButton.WithCallbackData("✅ D", "dummy"));
+        else row2.Add(InlineKeyboardButton.WithCallbackData("▫️ D", "dummy"));
 
         buttons.Add(row1.ToArray());
         buttons.Add(row2.ToArray());
@@ -1063,6 +1065,12 @@ public class TelegramBotHostedService : IHostedService
 
     private int GetLevel(int score) => score switch { <= 150 => 1, <= 300 => 2, <= 450 => 3, <= 600 => 4, _ => 5 };
 
+    private string GetProgressBar(int percentage)
+    {
+        int filledBoxes = (int)(percentage / 10.0);
+        return new string('█', filledBoxes) + new string('▁', 10 - filledBoxes) + $" {percentage}%";
+    }
+
     private async Task HandleBroadcastMessageAsync(long chatId, string? messageText, IServiceProvider serviceProvider,
         CancellationToken cancellationToken)
     {
@@ -1074,46 +1082,107 @@ public class TelegramBotHostedService : IHostedService
         }
 
         var dbContext = serviceProvider.GetRequiredService<DataContext>();
-        var users = await dbContext.Users
-            .Where(u => u.IsActive && !u.IsLeft)
-            .Select(u => u.ChatId)
+        var users = await dbContext.Users.Where(u => !u.IsLeft).Select(u => u.ChatId).ToListAsync(cancellationToken);
+        // Get detailed statistics
+        var subjectsWithQuestions = await dbContext.Subjects
+            .Select(s => new
+            {
+                s.Name,
+                QuestionCount = s.Questions.Count,
+            })
             .ToListAsync(cancellationToken);
+
+        var userStats = await dbContext.Users
+            .GroupBy(u => true)
+            .Select(g => new
+            {
+                TotalUsers = g.Count(),
+                ActiveUsers = g.Count(u => u.IsActive && !u.IsLeft),
+                InactiveUsers = g.Count(u => !u.IsActive && !u.IsLeft),
+                LeftUsers = g.Count(u => u.IsLeft)
+            })
+            .FirstOrDefaultAsync(cancellationToken) ?? new
+            { TotalUsers = 0, ActiveUsers = 0, InactiveUsers = 0, LeftUsers = 0 };
+
+        var totalResponses = await dbContext.UserResponses.CountAsync(cancellationToken);
+        var correctResponses = await dbContext.UserResponses.CountAsync(ur => ur.IsCorrect, cancellationToken);
 
         int successCount = 0;
         int blockedCount = 0;
+        int totalTargetUsers = users.Count;
         int totalUsers = users.Count;
+        int processedCount = 0;
+        var statusMessageId = 0;
 
-        await _client.SendMessage(chatId, $"🚀 Оғози фиристодани паём ба {totalUsers} корбар...",
+        // Initial status message
+        var statusMessage = await _client.SendMessage(chatId,
+            $"🚀 Оғози фиристодани паём...\n" +
+            $"Пешравӣ: 0/{totalUsers} (0%)\n" +
+            $"█▁▁▁▁▁▁▁▁▁ 0%",
             cancellationToken: cancellationToken);
+        statusMessageId = statusMessage.MessageId;
 
         foreach (var userChatId in users)
         {
             try
             {
-                if (await _client.HandleBlockedUser(serviceProvider, userChatId, cancellationToken))
+                if (await IsUserBlockedBotAsync(userChatId, cancellationToken))
                 {
                     blockedCount++;
-                    continue;
+                }
+                else
+                {
+                    await _client.SendMessage(userChatId, messageText, cancellationToken: cancellationToken);
+                    successCount++;
                 }
 
-                await _client.SendMessage(userChatId, messageText, cancellationToken: cancellationToken);
-                successCount++;
+                processedCount++;
+                if (processedCount % 5 == 0 || processedCount == totalUsers) // Update every 5 users or at the end
+                {
+                    var percentage = (int)((double)processedCount / totalUsers * 100);
+                    var progressBar = GetProgressBar(percentage);
+                    await _client.EditMessageText(chatId, statusMessageId,
+                        $"🚀 Фиристодани паём идома дорад...\n" +
+                        $"Пешравӣ: {processedCount}/{totalUsers} ({percentage}%)\n" +
+                        $"{progressBar}",
+                        cancellationToken: cancellationToken);
+                }
 
-                // Add a small delay to avoid hitting rate limits
                 await Task.Delay(50, cancellationToken);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error sending broadcast message to {userChatId}: {ex.Message}");
+                Console.WriteLine($"Хатогӣ ҳангоми фиристодани паём ба {userChatId}: {ex.Message}");
             }
         }
 
-        var summaryMessage = $"📊 Натиҷаи фиристодани паём:\n" +
-                             $"✅ Бомуваффақият: {successCount}\n" +
-                             $"❌ Корбарони блоккарда: {blockedCount}\n" +
-                             $"📝 Ҳамагӣ: {totalUsers}";
+        // Format subjects statistics
+        var subjectsStats = string.Join("\n", subjectsWithQuestions
+            .OrderByDescending(s => s.QuestionCount)
+            .Select(s => $"📚 {s.Name}:\n" +
+                         $"   ├ Ҳамагӣ саволҳо: {s.QuestionCount}\n"));
 
-        await _client.SendMessage(chatId, summaryMessage, cancellationToken: cancellationToken);
+        double correctPercentage = totalResponses > 0 ? (double)correctResponses / totalResponses * 100 : 0;
+
+        var summaryMessage =
+            $"� Натиҷаи фиристодани паём:\n" +
+            $"├ ✅ Бомуваффақият: {successCount}\n" +
+            $"├ ❌ Корбарони блоккарда: {blockedCount}\n" +
+            $"└ 📝 Ҳамагӣ: {totalTargetUsers}\n\n" +
+            $"👥 Омори корбарон:\n" +
+            $"├ � Ҳамагӣ корбарон: {userStats.TotalUsers}\n" +
+            $"├ ✅ Корбарони фаъол: {userStats.ActiveUsers}\n" +
+            $"├ ⏸️ Корбарони ғайрифаъол: {userStats.InactiveUsers}\n" +
+            $"└ � Корбарони рафта: {userStats.LeftUsers}\n\n" +
+            $"📋 Омори ҷавобҳо:\n" +
+            $"├ 📝 Ҳамагӣ ҷавобҳо: {totalResponses:N0}\n" +
+            $"├ ✅ Ҷавобҳои дуруст: {correctResponses:N0}\n" +
+            $"└ 📊 Фоизи дурустӣ: {correctPercentage:F1}%\n\n" +
+            $"📚 Омори фанҳо ({subjectsWithQuestions.Count()}):\n" +
+            $"{subjectsStats}";
+        // Send final summary as a new message since we need different markup
+        await _client.SendMessage(chatId, summaryMessage,
+            replyMarkup: GetAdminButtons(), cancellationToken: cancellationToken);
         CleanupBroadcastState(chatId);
     }
 
@@ -1243,13 +1312,6 @@ public class TelegramBotHostedService : IHostedService
             replyMarkup: GetAdminButtons(), cancellationToken: cancellationToken);
     }
 
-    private string MakeProgressBar(double percent)
-    {
-        var filledCount = (int)(percent / 10);
-        var emptyCount = 10 - filledCount;
-        return $"[{new string('█', filledCount)}{new string('░', emptyCount)}]";
-    }
-
     private async Task<bool> IsUserBlockedBotAsync(long chatId, CancellationToken cancellationToken)
     {
         try
@@ -1259,47 +1321,9 @@ public class TelegramBotHostedService : IHostedService
         }
         catch (Exception)
         {
+            // If the user has blocked the bot, clean up their data
+            await CleanupBlockedUserDataAsync(chatId);
             return true;
-        }
-    }
-
-    private async Task HandleAskAdminAsync(long chatId, string question, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (!await IsUserRegisteredAsync(chatId, _scopeFactory.CreateScope().ServiceProvider, cancellationToken))
-            {
-                await _client.SendMessage(chatId, "❌ Барои фиристодани савол ба админ бояд аввал сабти ном кунед.",
-                    cancellationToken: cancellationToken);
-                return;
-            }
-
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-
-            var question2Admin = new Question2Admin
-            {
-                UserChatId = chatId,
-                QuestionText = question,
-                IsAnswered = false
-            };
-
-            dbContext.QuestionsToAdmin.Add(question2Admin);
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            await _client.SendMessage(chatId,
-                "✅ Саволи шумо ба админҳо фиристода шуд. Онҳо дар назди имкон ҷавоб медиҳанд.",
-                cancellationToken: cancellationToken);
-
-            await NotifyAdminsAsync(
-                $"<b>❓ Саволи нав аз корбар:</b>\n\n{question}\n\nБарои ҷавоб додан: /answer_{question2Admin.Id}",
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            await _client.SendMessage(chatId, "❌ Хатогӣ ҳангоми фиристодани савол. Лутфан, баъдтар боз кӯшиш кунед.",
-                cancellationToken: cancellationToken);
-            Console.WriteLine($"Error in HandleAskAdminAsync: {ex.Message}");
         }
     }
 
@@ -1308,20 +1332,15 @@ public class TelegramBotHostedService : IHostedService
         try
         {
             var botInviteLink = $"https://t.me/{_botUsername}?start=ref_{chatId}";
-            string duelInviteLink = "";
-            if (_userCurrentSubject.TryGetValue(chatId, out int currentSubject))
-            {
-                duelInviteLink = $"https://t.me/{_botUsername}?start=duel_{chatId}_{currentSubject}";
-            }
+            string duelInviteLink = _userCurrentSubject.TryGetValue(chatId, out int currentSubject)
+                ? $"https://t.me/{_botUsername}?start=duel_{chatId}_{currentSubject}"
+                : "";
 
             await _client.SendMessage(chatId,
                 $"Дӯстони худро даъват кунед!\n\n" +
                 $"{botInviteLink}\n" +
                 "Пас аз сабти номи дӯстатон, шумо 5 бал мегиред.\n\n" +
-                (duelInviteLink != ""
-                    ? $"{duelInviteLink}\n" +
-                      "Дӯстатонро ба бозии дукаса даъват кунед.\n\n"
-                    : "") +
+                (duelInviteLink != "" ? $"{duelInviteLink}\nДӯстатонро ба бозии дукаса даъват кунед.\n\n" : "") +
                 "ℹ️ Барои фиристодани линк ба дӯстон, онро нусхабардорӣ кунед ва ба чати онҳо фиристед.",
                 cancellationToken: cancellationToken);
         }
@@ -1351,8 +1370,6 @@ public class TelegramBotHostedService : IHostedService
                 return;
             }
 
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
             var inviteLink = $"https://t.me/{_botUsername}?start=duel_{chatId}_{currentSubject}";
             await _client.SendMessage(chatId,
                 "👥 Дӯстонро ба мусобиқа даъват кунед!\n\n" +
@@ -1391,8 +1408,7 @@ public class TelegramBotHostedService : IHostedService
 
             await _client.SendMessage(chatId,
                 "🎮 Шумо даъватномаи мусобиқа гирифтед. Оё мехоҳед, ки ба мусобиқа ҳамроҳ шавед?",
-                replyMarkup: inlineKeyboard,
-                cancellationToken: cancellationToken);
+                replyMarkup: inlineKeyboard, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
@@ -1407,12 +1423,12 @@ public class TelegramBotHostedService : IHostedService
         try
         {
             if (game.CurrentRound > MaxDuelRounds)
+
             {
                 await NotifyDuelEnd(game, cancellationToken);
                 return;
             }
 
-            // Cancel any existing timers for both players
             if (_questionTimers.TryGetValue(game.Player1ChatId, out var timer1))
             {
                 timer1.Cancel();
@@ -1478,19 +1494,16 @@ public class TelegramBotHostedService : IHostedService
                     var remainingTime = QuestionTimeLimit;
                     while (remainingTime > 0)
                     {
-                        await Task.Delay(1000, linkedCts.Token); // Wait 1 second
+                        await Task.Delay(1000, linkedCts.Token);
                         remainingTime--;
 
-                        // Update timer for both players if they haven't answered
                         if (!_activeQuestions[game.Player1ChatId].IsAnswered)
                         {
                             var msg1 = baseMessageText + $"⏱ Вақт: {remainingTime} сония" + scoreText;
                             try
                             {
-                                await _client.EditMessageText(
-                                    chatId: new ChatId(game.Player1ChatId),
-                                    messageId: _activeQuestions[game.Player1ChatId].MessageId,
-                                    text: msg1,
+                                await _client.EditMessageText(chatId: new ChatId(game.Player1ChatId),
+                                    messageId: _activeQuestions[game.Player1ChatId].MessageId, text: msg1,
                                     parseMode: ParseMode.Html,
                                     replyMarkup: (InlineKeyboardMarkup)_activeQuestions[game.Player1ChatId].Markup);
                             }
@@ -1504,10 +1517,8 @@ public class TelegramBotHostedService : IHostedService
                             var msg2 = baseMessageText + $"⏱ Вақт: {remainingTime} сония" + scoreText;
                             try
                             {
-                                await _client.EditMessageText(
-                                    chatId: new ChatId(game.Player2ChatId),
-                                    messageId: _activeQuestions[game.Player2ChatId].MessageId,
-                                    text: msg2,
+                                await _client.EditMessageText(chatId: new ChatId(game.Player2ChatId),
+                                    messageId: _activeQuestions[game.Player2ChatId].MessageId, text: msg2,
                                     parseMode: ParseMode.Html,
                                     replyMarkup: (InlineKeyboardMarkup)_activeQuestions[game.Player2ChatId].Markup);
                             }
@@ -1516,18 +1527,12 @@ public class TelegramBotHostedService : IHostedService
                             }
                         }
 
-                        // If both players answered, break the loop
                         if (_activeQuestions[game.Player1ChatId].IsAnswered &&
-                            _activeQuestions[game.Player2ChatId].IsAnswered)
-                        {
-                            break;
-                        }
+                            _activeQuestions[game.Player2ChatId].IsAnswered) break;
                     }
 
-                    // If time ran out and at least one player hasn't answered
-                    if (remainingTime <= 0 &&
-                        (!_activeQuestions[game.Player1ChatId].IsAnswered ||
-                         !_activeQuestions[game.Player2ChatId].IsAnswered))
+                    if (remainingTime <= 0 && (!_activeQuestions[game.Player1ChatId].IsAnswered ||
+                                               !_activeQuestions[game.Player2ChatId].IsAnswered))
                     {
                         await HandleDuelQuestionTimeout(game.Id, question.QuestionId, cancellationToken);
                     }
@@ -1637,7 +1642,6 @@ public class TelegramBotHostedService : IHostedService
     {
         if (_activeGames.TryGetValue(gameId, out var game))
         {
-            // Make sure both players' timers are cleaned up
             if (_questionTimers.TryGetValue(game.Player1ChatId, out var timer1))
             {
                 _questionTimers.Remove(game.Player1ChatId);
@@ -1648,16 +1652,14 @@ public class TelegramBotHostedService : IHostedService
                 _questionTimers.Remove(game.Player2ChatId);
             }
 
-            var question = await _scopeFactory.CreateScope().ServiceProvider
-                .GetRequiredService<IQuestionService>()
+            var question = await _scopeFactory.CreateScope().ServiceProvider.GetRequiredService<IQuestionService>()
                 .GetQuestionById(questionId);
 
             if (question != null)
             {
                 if (_activeQuestions.TryGetValue(game.Player1ChatId, out var p1Question) && !p1Question.IsAnswered)
                 {
-                    await _client.SendMessage(game.Player1ChatId,
-                        $"⏱ Вақт тамом шуд! Ҷавоби дуруст: {question.Answer}",
+                    await _client.SendMessage(game.Player1ChatId, $"⏱ Вақт тамом шуд! Ҷавоби дуруст: {question.Answer}",
                         cancellationToken: cancellationToken);
                     _activeQuestions[game.Player1ChatId] = (p1Question.QuestionId, p1Question.StartTime, true,
                         p1Question.Markup, p1Question.MessageId);
@@ -1665,8 +1667,7 @@ public class TelegramBotHostedService : IHostedService
 
                 if (_activeQuestions.TryGetValue(game.Player2ChatId, out var p2Question) && !p2Question.IsAnswered)
                 {
-                    await _client.SendMessage(game.Player2ChatId,
-                        $"⏱ Вақт тамом шуд! Ҷавоби дуруст: {question.Answer}",
+                    await _client.SendMessage(game.Player2ChatId, $"⏱ Вақт тамом шуд! Ҷавоби дуруст: {question.Answer}",
                         cancellationToken: cancellationToken);
                     _activeQuestions[game.Player2ChatId] = (p2Question.QuestionId, p2Question.StartTime, true,
                         p2Question.Markup, p2Question.MessageId);
@@ -1687,6 +1688,64 @@ public class TelegramBotHostedService : IHostedService
 
                 await HandleDuelGameAsync(game, cancellationToken);
             }
+        }
+    }
+
+    private async Task CleanupBlockedUserDataAsync(long chatId, IServiceProvider? serviceProvider = null)
+    {
+        try
+        {
+            using var scope = serviceProvider == null ? _scopeFactory.CreateScope() : null;
+            var dbContext = (serviceProvider ?? scope?.ServiceProvider)?.GetRequiredService<DataContext>();
+
+            if (dbContext == null) return;
+
+            var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId);
+            if (user != null)
+            {
+                // Remove user responses
+                var userResponses = await dbContext.UserResponses.Where(ur => ur.ChatId == chatId).ToListAsync();
+                dbContext.UserResponses.RemoveRange(userResponses);
+
+                // Remove user referrals
+                var userReferrals = await dbContext.UserReferrals.Where(ur =>
+                    ur.ReferrerChatId == chatId || ur.ReferredChatId == chatId).ToListAsync();
+                dbContext.UserReferrals.RemoveRange(userReferrals);
+
+                // Remove duel games
+                var duelGames = await dbContext.DuelGames.Where(dg =>
+                    dg.Player1ChatId == chatId || dg.Player2ChatId == chatId).ToListAsync();
+                dbContext.DuelGames.RemoveRange(duelGames);
+
+                // Remove user from active games dictionary
+                if (_activeGames.ContainsKey(chatId))
+                {
+                    _activeGames.Remove(chatId);
+                }
+
+                // Remove user from other dictionaries
+                _pendingRegistrations.Remove(chatId);
+                _userScores.Remove(chatId);
+                _userQuestions.Remove(chatId);
+                _pendingBroadcast.Remove(chatId);
+                _userCurrentSubject.Remove(chatId);
+                _activeQuestions.Remove(chatId);
+                if (_questionTimers.TryGetValue(chatId, out var cts))
+                {
+                    cts.Cancel();
+                    _questionTimers.Remove(chatId);
+                }
+
+                // Mark user as deleted
+                user.IsLeft = true;
+                user.IsActive = false;
+
+                await dbContext.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error cleaning up blocked user data for {chatId}: {ex.Message}");
         }
     }
 }

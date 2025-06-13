@@ -12,6 +12,7 @@ public class User
     public bool IsLeft { get; set; } = false;
     public bool IsAdmin { get; set; } = false;
     public bool IsActive { get; set; } = true;
+    public DateTime RegisteredAt { get; set; } = DateTime.Now;
     // Алоқа бо ҷавобҳои корбар
     public List<UserResponse> UserResponses { get; set; } = new();
 
