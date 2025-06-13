@@ -305,10 +305,19 @@ public class TelegramBotHostedService : IHostedService
                     {
                         await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд оморро бубинанд!", cancellationToken: cancellationToken);
                     }
-                    break;
-
-                case "❓ Савол ба админ":
-                    await HandleAskAdminAsync(chatId, "Саволи шумо...", cancellationToken);
+                    break;               
+                
+                case "💬 Тамос бо админ":
+                    var adminButton = new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithUrl("💬 Тамос бо админ", "https://t.me/iamnoseh") }
+                    });
+                    await _client.SendMessage(
+                        chatId,
+                        "Барои фиристодани савол ё дархост ба админ, ба ин суроға муроҷиат кунед:",
+                        replyMarkup: adminButton,
+                        cancellationToken: cancellationToken
+                    );
                     break;
 
                 case "👥 Даъвати дӯстон":
@@ -479,7 +488,7 @@ public class TelegramBotHostedService : IHostedService
         {
             new() { new KeyboardButton("📚 Интихоби фан"), new KeyboardButton("🎯 Оғози тест") },
             new() { new KeyboardButton("🏆 Беҳтаринҳо"), new KeyboardButton("👤 Профил") },
-            new() { new KeyboardButton("🎮 Мусобиқа"), new KeyboardButton("❓ Савол ба админ") },
+            new() { new KeyboardButton("🎮 Мусобиқа"), new KeyboardButton("💬 Тамос бо админ") },
             new() { new KeyboardButton("👥 Даъвати дӯстон"), new KeyboardButton("ℹ️ Кӯмак") }
         };
         if (isAdmin) buttons.Add(new() { new KeyboardButton("👨‍💼 Админ") });

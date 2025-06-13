@@ -7,9 +7,13 @@ public class DataContext : DbContext
 
     public DbSet<Subject> Subjects { get; set; }
     public DbSet<Question> Questions { get; set; }
+    public DbSet<Invitation> Invitations { get; set; }
     public DbSet<Option> Options { get; set; }
     public DbSet<User> Users { get; set; }
     public DbSet<UserResponse> UserResponses { get; set; }
+    public DbSet<Question2Admin> QuestionsToAdmin { get; set; }
+    public DbSet<DuelGame> DuelGames { get; set; }
+    public DbSet<UserReferral> UserReferrals { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
