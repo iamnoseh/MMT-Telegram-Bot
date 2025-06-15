@@ -1246,12 +1246,41 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
                 questions = ParseQuestionsPdf.ParseQuestionsFromPdf(stream, currentSubject);
             }
 
-            foreach (var question in questions) await questionService.CreateQuestion(question);
-            var successMessage = $"<b>✅ {questions.Count} савол бо муваффақият илова шуд!</b>";
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+            
+            int addedCount = 0;
+            int duplicateCount = 0;
+            var existingQuestions = await dbContext.Questions
+                .Where(q => q.SubjectId == currentSubject)
+                .Select(q => q.QuestionText)
+                .ToListAsync(cancellationToken);
+
+            foreach (var question in questions)
+            {
+                // Check if question already exists in database
+                if (!existingQuestions.Contains(question.QuestionText))
+                {
+                    await questionService.CreateQuestion(question);
+                    addedCount++;
+                }
+                else
+                {
+                    duplicateCount++;
+                }
+            }
+
+            var successMessage = $"<b>✅ {addedCount} саволи нав бо муваффақият илова шуд!</b>\n" +
+                               $"<b>⚠️ {duplicateCount} саволи такрорӣ ёфт шуд ва илова нашуд.</b>";
+            
             await _client.SendMessage(chatId, successMessage, parseMode: ParseMode.Html,
                 cancellationToken: cancellationToken);
+            
             await NotifyAdminsAsync(
-                $"<b>✅ Аз файли {fileName}</b>\nАз ҷониби {username} фиристода шуд,\n{questions.Count} савол бо муваффақият илова шуд!",
+                $"<b>✅ Аз файли {fileName}</b>\n" +
+                $"Аз ҷониби {username} фиристода шуд,\n" +
+                $"{addedCount} саволи нав бо муваффақият илова шуд!\n" +
+                $"{duplicateCount} саволи такрорӣ ёфт шуд.",
                 cancellationToken);
         }
         catch (Exception ex)
