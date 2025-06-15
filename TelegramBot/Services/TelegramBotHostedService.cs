@@ -351,7 +351,7 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
                             new() { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
                             new() { new KeyboardButton("📚 Адабиёти тоҷик"), new KeyboardButton("⚛️ Физика") },
                             new() { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("📐 Математика") },
-                            new() { new KeyboardButton("⬅️ Бозгашт") }
+                            new() { new KeyboardButton("🫀 Анатомия"), new KeyboardButton("⬅️ Бозгашт") }
                         },
                         ResizeKeyboard = true
                     };
@@ -369,6 +369,7 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
                 case "⚛️ Физика":
                 case "🇷🇺 Забони русӣ":
                 case "📐 Математика":
+                case "🫀 Анатомия":
                     await HandleSubjectSelectionAsync(chatId, text, cancellationToken);
                     break;
 
@@ -659,6 +660,7 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
             "⚛️ Физика" => 8,
             "🇷🇺 Забони русӣ" => 9,
             "📐 Математика" => 10,
+            "🫀 Анатомия" => 11,
             _ => 0
         };
         if (subjectId == 0) return;
