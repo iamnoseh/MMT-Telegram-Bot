@@ -1203,9 +1203,11 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
         var username = !string.IsNullOrWhiteSpace(message.From?.Username)
             ? $"@{message.From.Username}"
             : message.From?.FirstName ?? "Корбари номаълум";
-        if (!fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+
+        if (!fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) && 
+            !fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
         {
-            await _client.SendMessage(chatId, "❌ Лутфан, танҳо файли .docx фиристед!",
+            await _client.SendMessage(chatId, "❌ Лутфан, танҳо файли .docx ё .pdf фиристед!",
                 cancellationToken: cancellationToken);
             return;
         }
@@ -1226,7 +1228,17 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
 
             await NotifyAdminsAsync($"<b>📥 Файли нав аз {username}</b>\nНоми файл: {fileName}\nДар ҳоли коркард...",
                 cancellationToken);
-            var questions = ParseQuestionsDocx.ParseQuestionsFromDocx(stream, currentSubject);
+
+            List<QuestionDTO> questions;
+            if (fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+            {
+                questions = ParseQuestionsDocx.ParseQuestionsFromDocx(stream, currentSubject);
+            }
+            else // .pdf
+            {
+                questions = ParseQuestionsPdf.ParseQuestionsFromPdf(stream, currentSubject);
+            }
+
             foreach (var question in questions) await questionService.CreateQuestion(question);
             var successMessage = $"<b>✅ {questions.Count} савол бо муваффақият илова шуд!</b>";
             await _client.SendMessage(chatId, successMessage, parseMode: ParseMode.Html,
