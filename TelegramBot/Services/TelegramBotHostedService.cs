@@ -44,6 +44,10 @@ public class TelegramBotHostedService : IHostedService
     private const int BaseScore = 10;
     private const int SpeedBonus = 2;
     private readonly HashSet<int> NoTimerSubjects = new() { 1, 8, 10 }; // 1 - Химия, 8 - Физика, 10 - Математика
+    private readonly Dictionary<int, int> SubjectTimeLimits = new()
+    {
+        { 7, 45 } // 7 - Адабиёти тоҷик: 45 seconds
+    };
 
     public TelegramBotHostedService(IServiceScopeFactory scopeFactory, IConfiguration configuration)
     {
@@ -723,9 +727,10 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
                               $"C) {question.ThirdOption}\n" +
                               $"D) {question.FourthOption}";
 
+            int timeLimit = SubjectTimeLimits.GetValueOrDefault(currentSubject, QuestionTimeLimit);
             if (!NoTimerSubjects.Contains(currentSubject))
             {
-                messageText += $"\n\n<i>⏱ Вақт: {QuestionTimeLimit} сония</i>";
+                messageText += $"\n\n<i>⏱ Вақт: {timeLimit} сония</i>";
             }
 
             var sentMessage = await _client.SendMessage(chatId, messageText, parseMode: ParseMode.Html,
@@ -736,7 +741,7 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
             {
                 var cts = new CancellationTokenSource();
                 _questionTimers[chatId] = cts;
-                _ = UpdateQuestionTimer(chatId, cts.Token);
+                _ = UpdateQuestionTimer(chatId, cts.Token, timeLimit);
             }
         }
         else
@@ -746,7 +751,7 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
         }
     }
 
-    private async Task UpdateQuestionTimer(long chatId, CancellationToken cancellationToken)
+    private async Task UpdateQuestionTimer(long chatId, CancellationToken cancellationToken, int timeLimit = QuestionTimeLimit)
     {
         try
         {
@@ -757,7 +762,7 @@ private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider se
                 var question = await questionService.GetQuestionById(questionInfo.QuestionId);
                 if (question == null) return;
 
-                int remainingTime = QuestionTimeLimit;
+                int remainingTime = timeLimit;
                 while (remainingTime > 0 && !questionInfo.IsAnswered)
                 {
                     await Task.Delay(1000, cancellationToken);
