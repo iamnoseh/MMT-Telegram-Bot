@@ -56,6 +56,9 @@ public class TelegramBotHostedService : IHostedService
             var me = await _client.GetMeAsync(cancellationToken);
             Console.WriteLine($"Бот бо номи {me.Username} пайваст шуд");
 
+            // Clean up invalid users before starting
+            await CleanupInvalidUsersAsync(cancellationToken);
+
             var offset = 0;
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -79,6 +82,44 @@ public class TelegramBotHostedService : IHostedService
         catch (Exception ex)
         {
             Console.WriteLine($"Хатогӣ ҳангоми оғози бот: {ex.Message}");
+        }
+    }
+
+    private async Task CleanupInvalidUsersAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+            
+            var users = await dbContext.Users.ToListAsync(cancellationToken);
+            var invalidUsers = new List<User>();
+
+            foreach (var user in users)
+            {
+                try
+                {
+                    // Try to get chat member to check if user is valid
+                    await _client.GetChatMember(_channelId, user.ChatId, cancellationToken);
+                }
+                catch (Exception)
+                {
+                    // If we get an error, the user is invalid
+                    invalidUsers.Add(user);
+                    Console.WriteLine($"Корбари нодуруст ёфт шуд: {user.ChatId} - {user.Name}");
+                }
+            }
+
+            if (invalidUsers.Any())
+            {
+                dbContext.Users.RemoveRange(invalidUsers);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                Console.WriteLine($"✅ {invalidUsers.Count} корбари нодуруст аз пойгоҳи додаҳо нест карда шуд");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Хатогӣ ҳангоми тозакунии корбарони нодуруст: {ex.Message}");
         }
     }
 
