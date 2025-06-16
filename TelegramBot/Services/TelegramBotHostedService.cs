@@ -716,6 +716,20 @@ public class TelegramBotHostedService : IHostedService
     {
         var chatId = callbackQuery.Message.Chat.Id;
 
+        if (callbackQuery.Data == "check_subscription")
+        {
+            if (await IsUserChannelMemberAsync(chatId, cancellationToken))
+            {
+                await _client.AnswerCallbackQuery(callbackQuery.Id, "✅ Шумо обунаи каналро қабул кардед!", cancellationToken: cancellationToken);
+                await _client.SendMessage(chatId, "Хуш омадед! Барои оғози тест тугмаи 'Оғози тест'-ро пахш кунед.", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
+            }
+            else
+            {
+                await _client.AnswerCallbackQuery(callbackQuery.Id, "❌ Шумо ҳанӯз обунаи каналро қабул накардаед!", showAlert: true, cancellationToken: cancellationToken);
+            }
+            return;
+        }
+
         if (!_activeQuestions.TryGetValue(chatId, out var questionInfo) || questionInfo.IsAnswered)
         {
             await _client.AnswerCallbackQuery(callbackQuery.Id, "⚠️ Вақти ҷавоб додан гузашт!", showAlert: true, cancellationToken: cancellationToken);
@@ -874,12 +888,33 @@ public class TelegramBotHostedService : IHostedService
     {
         try
         {
-            var chatMember = await _client.GetChatMember(_channelId, chatId, cancellationToken);
-            return chatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
+            // First check if user exists in our database
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+            var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+            
+            if (user == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var chatMember = await _client.GetChatMember(_channelId, chatId, cancellationToken);
+                return chatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
+            }
+            catch (Exception ex) when (ex.Message.Contains("user not found") || 
+                                     ex.Message.Contains("chat not found") || 
+                                     ex.Message.Contains("invalid user_id"))
+            {
+                // If user is not found or has blocked the bot, remove them from database
+                dbContext.Users.Remove(user);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return false;
+            }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"Хатогӣ ҳангоми санҷиши аъзогии канал: {ex.Message}");
             return false;
         }
     }
@@ -888,8 +923,18 @@ public class TelegramBotHostedService : IHostedService
     {
         if (!await IsUserChannelMemberAsync(chatId, cancellationToken))
         {
-            var keyboard = new InlineKeyboardMarkup(new[] { new[] { InlineKeyboardButton.WithUrl("Обуна шудан ба канал", _channelLink) }, new[] { InlineKeyboardButton.WithCallbackData("🔄 Санҷиш", "check_subscription") } });
-            await _client.SendMessage(chatId, "⚠️ Барои истифодаи бот, аввал ба канали мо обуна шавед!", replyMarkup: keyboard, cancellationToken: cancellationToken);
+            var keyboard = new InlineKeyboardMarkup(new[] 
+            { 
+                new[] { InlineKeyboardButton.WithUrl("Обуна шудан ба канал", _channelLink) },
+                new[] { InlineKeyboardButton.WithCallbackData("🔄 Санҷиш", "check_subscription") }
+            });
+            
+            await _client.SendMessage(
+                chatId, 
+                "⚠️ Барои истифодаи бот, аввал ба канали мо обуна шавед!", 
+                replyMarkup: keyboard, 
+                cancellationToken: cancellationToken
+            );
             return false;
         }
         return true;
