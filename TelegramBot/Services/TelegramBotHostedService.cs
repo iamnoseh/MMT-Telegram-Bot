@@ -574,11 +574,14 @@ public class TelegramBotHostedService : IHostedService
         {
             new() { new KeyboardButton("📚 Интихоби фан"), new KeyboardButton("🎯 Оғози тест") },
             new() { new KeyboardButton("🏆 Беҳтаринҳо"), new KeyboardButton("👤 Профил") },
-            new() { new KeyboardButton("📊 Омор") },
             new() { new KeyboardButton("🎮 Мусобиқа"), new KeyboardButton("💬 Тамос бо админ") },
             new() { new KeyboardButton("👥 Даъвати дӯстон"), new KeyboardButton("ℹ️ Кӯмак") }
         };
-        if (isAdmin) buttons.Add(new() { new KeyboardButton("👨‍💼 Админ") });
+        if (isAdmin) 
+        {
+            buttons.Add(new() { new KeyboardButton("📊 Омор") });
+            buttons.Add(new() { new KeyboardButton("👨‍💼 Админ") });
+        }
         return new ReplyKeyboardMarkup(buttons) { ResizeKeyboard = true };
     }
 
@@ -1295,77 +1298,75 @@ public class TelegramBotHostedService : IHostedService
 
     private async Task HandleStatisticsCommandAsync(long chatId, IServiceProvider serviceProvider, CancellationToken cancellationToken)
     {
-        try
+        // Check if the user is an admin
+        if (!await IsUserAdminAsync(chatId, cancellationToken))
         {
-            var dbContext = serviceProvider.GetRequiredService<DataContext>();
-
-            var totalUsers = await dbContext.Users.CountAsync(cancellationToken);
-            var activeUsers = await dbContext.UserResponses
-                .Where(r => r.CreatedAt >= DateTime.UtcNow.AddDays(-7))
-                .Select(r => r.ChatId)
-                .Distinct()
-                .CountAsync(cancellationToken);
-
-            var subjects = await dbContext.Subjects.ToListAsync(cancellationToken);
-            var questionCounts = await dbContext.Questions
-                .GroupBy(q => q.SubjectId)
-                .Select(g => new { SubjectId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.SubjectId, g => g.Count, cancellationToken);
-
-            var totalQuestions = await dbContext.Questions.CountAsync(cancellationToken);
-
-            var subjectStats = subjects
-                .OrderByDescending(s => questionCounts.GetValueOrDefault(s.Id, 0))
-                .Select(s => {
-                    var count = questionCounts.GetValueOrDefault(s.Id, 0);
-                    var emoji = s.Name switch
-                    {
-                        "Химия" => "🧪",
-                        "Биология" => "🔬",
-                        "Забони тоҷикӣ" => "📖",
-                        "English" => "🌍",
-                        "Таърих" => "📜",
-                        "География" => "🌍",
-                        "Адабиёти тоҷик" => "📚",
-                        "Физика" => "⚛️",
-                        "Забони русӣ" => "🇷🇺",
-                        "Математика" => "📐",
-                        "Анатомия" => "🫀",
-                        _ => "📚"
-                    };
-                    return $"• {emoji} {s.Name}: {count:N0} савол";
-                })
-                .ToList();
-
-            var statsMessage =
-                "<b>📊 ОМОРИ БОТ</b>\n" +
-                "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
-                "<b>👥 Корбарон:</b>\n" +
-                $"• Ҳамагӣ: {totalUsers:N0} нафар\n" +
-                $"• Фаъол (7 рӯзи охир): {activeUsers:N0} нафар\n" +
-                "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
-                "<b>📚 Савол ва тестҳо:</b>\n" +
-                $"• Ҳамагӣ саволҳо: {totalQuestions:N0}\n" +
-                "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
-                "<b>📝 Саволҳо аз рӯи фанҳо:</b>\n" +
-                $"{string.Join("\n", subjectStats)}";
-
-            await _client.SendMessage(
-                chatId,
-                statsMessage,
-                parseMode: ParseMode.Html,
-                replyMarkup: GetAdminButtons(),
-                cancellationToken: cancellationToken
-            );
+            await _client.SendMessage(chatId, "❌ Шумо иҷозати дидани оморро надоред!", cancellationToken: cancellationToken);
+            return;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Хатогӣ дар гирифтани омор: {ex.Message}");
-            await _client.SendMessage(chatId,
-                "❌ Хатогӣ ҳангоми гирифтани омор. Лутфан, баъдтар боз кӯшиш кунед.",
-                replyMarkup: GetAdminButtons(),
-                cancellationToken: cancellationToken);
-        }
+
+        using var scope = serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+
+        // Get total number of users
+        var totalUsers = await dbContext.Users.CountAsync(cancellationToken);
+        var activeUsers = await dbContext.UserResponses
+            .Where(r => r.CreatedAt >= DateTime.UtcNow.AddDays(-7))
+            .Select(r => r.ChatId)
+            .Distinct()
+            .CountAsync(cancellationToken);
+
+        var subjects = await dbContext.Subjects.ToListAsync(cancellationToken);
+        var questionCounts = await dbContext.Questions
+            .GroupBy(q => q.SubjectId)
+            .Select(g => new { SubjectId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.SubjectId, g => g.Count, cancellationToken);
+
+        var totalQuestions = await dbContext.Questions.CountAsync(cancellationToken);
+
+        var subjectStats = subjects
+            .OrderByDescending(s => questionCounts.GetValueOrDefault(s.Id, 0))
+            .Select(s => {
+                var count = questionCounts.GetValueOrDefault(s.Id, 0);
+                var emoji = s.Name switch
+                {
+                    "Химия" => "🧪",
+                    "Биология" => "🔬",
+                    "Забони тоҷикӣ" => "📖",
+                    "English" => "🌍",
+                    "Таърих" => "📜",
+                    "География" => "🌍",
+                    "Адабиёти тоҷик" => "📚",
+                    "Физика" => "⚛️",
+                    "Забони русӣ" => "🇷🇺",
+                    "Математика" => "📐",
+                    "Анатомия" => "🫀",
+                    _ => "📚"
+                };
+                return $"• {emoji} {s.Name}: {count:N0} савол";
+            })
+            .ToList();
+
+        var statsMessage =
+            "<b>📊 ОМОРИ БОТ</b>\n" +
+            "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
+            "<b>👥 Корбарон:</b>\n" +
+            $"• Ҳамагӣ: {totalUsers:N0} нафар\n" +
+            $"• Фаъол (7 рӯзи охир): {activeUsers:N0} нафар\n" +
+            "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
+            "<b>📚 Савол ва тестҳо:</b>\n" +
+            $"• Ҳамагӣ саволҳо: {totalQuestions:N0}\n" +
+            "<code>━━━━━━━━━━━━━━━━━━━━━━</code>\n\n" +
+            "<b>📝 Саволҳо аз рӯи фанҳо:</b>\n" +
+            $"{string.Join("\n", subjectStats)}";
+
+        await _client.SendMessage(
+            chatId,
+            statsMessage,
+            parseMode: ParseMode.Html,
+            replyMarkup: GetAdminButtons(),
+            cancellationToken: cancellationToken
+        );
     }
 
     private async Task HandleFileUploadAsync(Message message, IQuestionService questionService, ISubjectService subjectService, CancellationToken cancellationToken)
