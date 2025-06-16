@@ -931,9 +931,18 @@ public class TelegramBotHostedService : IHostedService
                 // Try to send a chat action to verify user is accessible
                 await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
 
-                // Try to get channel member info
+                // Try to get channel member info using a different approach
                 try
                 {
+                    // First try to get channel info
+                    var channelInfo = await _client.GetChat(_channelId, cancellationToken);
+                    if (channelInfo == null)
+                    {
+                        Console.WriteLine($"Канал ёфт нашуд: {_channelId}");
+                        return false;
+                    }
+
+                    // Try to get channel member info
                     var chatMember = await _client.GetChatMember(_channelId, chatId, cancellationToken);
                     var isMember = chatMember.Status is ChatMemberStatus.Member or 
                                  ChatMemberStatus.Administrator or 
@@ -944,36 +953,44 @@ public class TelegramBotHostedService : IHostedService
                         // If user is a member, update their status in database
                         user.IsLeft = false;
                         await dbContext.SaveChangesAsync(cancellationToken);
+                        Console.WriteLine($"Корбар {chatId} аъзои канал аст");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Корбар {chatId} аъзои канал нест. Вазъият: {chatMember.Status}");
                     }
 
                     return isMember;
                 }
-                catch (Exception ex) when (ex.Message.Contains("PARTICIPANT_ID_INVALID"))
+                catch (Exception ex) when (ex.Message.Contains("PARTICIPANT_ID_INVALID") || 
+                                        ex.Message.Contains("invalid user_id"))
                 {
-                    // If we get PARTICIPANT_ID_INVALID, try to verify membership another way
+                    Console.WriteLine($"Хатогии PARTICIPANT_ID_INVALID барои корбар {chatId}");
+                    
+                    // Try alternative method - check if user can access channel
                     try
                     {
-                        // Try to send a test message to the channel
-                        var testMessage = await _client.SendMessage(
-                            _channelId,
-                            $"Test message for user {chatId}",
-                            cancellationToken: cancellationToken
-                        );
-                        
-                        // If message was sent successfully, delete it
-                        if (testMessage != null)
+                        // Try to get channel info
+                        var channelInfo = await _client.GetChat(_channelId, cancellationToken);
+                        if (channelInfo == null)
                         {
-                            await _client.DeleteMessage(_channelId, testMessage.MessageId, cancellationToken);
+                            Console.WriteLine($"Канал ёфт нашуд: {_channelId}");
+                            return false;
                         }
 
+                        // Try to get channel member count
+                        var memberCount = await _client.GetChatMemberCount(_channelId, cancellationToken);
+                        Console.WriteLine($"Шумораи аъзои канал: {memberCount}");
+
+                        // If we can get member count, channel exists and is accessible
                         // Update user status
                         user.IsLeft = false;
                         await dbContext.SaveChangesAsync(cancellationToken);
                         return true;
                     }
-                    catch
+                    catch (Exception innerEx)
                     {
-                        // If we can't send message to channel, user is not a member
+                        Console.WriteLine($"Хатогӣ дар санҷиши алтернативии канал: {innerEx.Message}");
                         return false;
                     }
                 }
@@ -983,6 +1000,7 @@ public class TelegramBotHostedService : IHostedService
                                      ex.Message.Contains("invalid user_id") ||
                                      ex.Message.Contains("bot was blocked"))
             {
+                Console.WriteLine($"Корбар ёфт нашуд ё ботро бастааст: {ex.Message}");
                 // If user is not found or has blocked the bot, mark them as left and remove from database
                 user.IsLeft = true;
                 await dbContext.SaveChangesAsync(cancellationToken);
@@ -1028,6 +1046,7 @@ public class TelegramBotHostedService : IHostedService
                                  ex.Message.Contains("user not found") || 
                                  ex.Message.Contains("bot was blocked"))
         {
+            Console.WriteLine($"Хатогӣ дар санҷиши обуна: {ex.Message}");
             // If we can't send messages to the user, they are probably invalid
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
