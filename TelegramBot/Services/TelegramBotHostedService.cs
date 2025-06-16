@@ -52,7 +52,7 @@ public class TelegramBotHostedService : IHostedService
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
-        var token = "7418214830:AAGf1xCyFFIa-h2yVjFn7SaD6c069vsRJ8A"; // Replace with your actual token
+        var token = "8005745055:AAEMHwCls9EPyeN9nSShWYZzkitQUTqQ-cY"; // Replace with your actual token
         _client = new TelegramBotClient(token);
         _channelId = configuration["TelegramChannel:ChannelId"] ?? throw new ArgumentNullException("ID-и канал ёфт нашуд!");
         _channelLink = configuration["TelegramChannel:ChannelLink"] ?? throw new ArgumentNullException("Пайванди канал ёфт нашуд!");
