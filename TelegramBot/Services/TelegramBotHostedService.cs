@@ -917,51 +917,75 @@ public class TelegramBotHostedService : IHostedService
 
             try
             {
-                // Try to send a chat action first to check if user is accessible
+                // Try to get user info first
+                var userInfo = await _client.GetChatAsync(chatId, cancellationToken);
+                if (userInfo == null)
+                {
+                    user.IsLeft = true;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    dbContext.Users.Remove(user);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    return false;
+                }
+
+                // Try to send a chat action to verify user is accessible
                 await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
-                
-                // If we can send chat action, then check channel membership
+
+                // Try to get channel member info
                 try
                 {
                     var chatMember = await _client.GetChatMember(_channelId, chatId, cancellationToken);
-                    return chatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
+                    var isMember = chatMember.Status is ChatMemberStatus.Member or 
+                                 ChatMemberStatus.Administrator or 
+                                 ChatMemberStatus.Creator;
+
+                    if (isMember)
+                    {
+                        // If user is a member, update their status in database
+                        user.IsLeft = false;
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
+
+                    return isMember;
                 }
                 catch (Exception ex) when (ex.Message.Contains("PARTICIPANT_ID_INVALID"))
                 {
-                    // If we get PARTICIPANT_ID_INVALID, the user might not be in the channel
-                    // Try to get user info first
+                    // If we get PARTICIPANT_ID_INVALID, try to verify membership another way
                     try
                     {
-                        var userInfo = await _client.GetChatAsync(chatId, cancellationToken);
-                        if (userInfo != null)
+                        // Try to send a test message to the channel
+                        var testMessage = await _client.SendMessage(
+                            _channelId,
+                            $"Test message for user {chatId}",
+                            cancellationToken: cancellationToken
+                        );
+                        
+                        // If message was sent successfully, delete it
+                        if (testMessage != null)
                         {
-                            // User exists but might not be in channel
-                            return false;
+                            await _client.DeleteMessage(_channelId, testMessage.MessageId, cancellationToken);
                         }
+
+                        // Update user status
+                        user.IsLeft = false;
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        return true;
                     }
                     catch
                     {
-                        // If we can't get user info, mark as invalid
-                        user.IsLeft = true;
-                        await dbContext.SaveChangesAsync(cancellationToken);
-                        dbContext.Users.Remove(user);
-                        await dbContext.SaveChangesAsync(cancellationToken);
+                        // If we can't send message to channel, user is not a member
                         return false;
                     }
-                    return false;
                 }
             }
             catch (Exception ex) when (ex.Message.Contains("user not found") || 
                                      ex.Message.Contains("chat not found") || 
                                      ex.Message.Contains("invalid user_id") ||
-                                     ex.Message.Contains("bot was blocked") ||
-                                     ex.Message.Contains("PARTICIPANT_ID_INVALID"))
+                                     ex.Message.Contains("bot was blocked"))
             {
                 // If user is not found or has blocked the bot, mark them as left and remove from database
                 user.IsLeft = true;
                 await dbContext.SaveChangesAsync(cancellationToken);
-                
-                // Remove user after marking them as left
                 dbContext.Users.Remove(user);
                 await dbContext.SaveChangesAsync(cancellationToken);
                 return false;
@@ -991,7 +1015,8 @@ public class TelegramBotHostedService : IHostedService
                 
                 await _client.SendMessage(
                     chatId, 
-                    "⚠️ Барои истифодаи бот, аввал ба канали мо обуна шавед!", 
+                    "⚠️ Барои истифодаи бот, аввал ба канали мо обуна шавед!\n\n" +
+                    "Пас аз обуна шудан, тугмаи '🔄 Санҷиш'-ро пахш кунед.", 
                     replyMarkup: keyboard, 
                     cancellationToken: cancellationToken
                 );
@@ -1001,8 +1026,7 @@ public class TelegramBotHostedService : IHostedService
         }
         catch (Exception ex) when (ex.Message.Contains("chat not found") || 
                                  ex.Message.Contains("user not found") || 
-                                 ex.Message.Contains("bot was blocked") ||
-                                 ex.Message.Contains("PARTICIPANT_ID_INVALID"))
+                                 ex.Message.Contains("bot was blocked"))
         {
             // If we can't send messages to the user, they are probably invalid
             using var scope = _scopeFactory.CreateScope();
@@ -1013,8 +1037,6 @@ public class TelegramBotHostedService : IHostedService
             {
                 user.IsLeft = true;
                 await dbContext.SaveChangesAsync(cancellationToken);
-                
-                // Remove user after marking them as left
                 dbContext.Users.Remove(user);
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
