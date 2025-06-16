@@ -921,13 +921,41 @@ public class TelegramBotHostedService : IHostedService
                 await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
                 
                 // If we can send chat action, then check channel membership
-                var chatMember = await _client.GetChatMember(_channelId, chatId, cancellationToken);
-                return chatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
+                try
+                {
+                    var chatMember = await _client.GetChatMember(_channelId, chatId, cancellationToken);
+                    return chatMember.Status is ChatMemberStatus.Member or ChatMemberStatus.Administrator or ChatMemberStatus.Creator;
+                }
+                catch (Exception ex) when (ex.Message.Contains("PARTICIPANT_ID_INVALID"))
+                {
+                    // If we get PARTICIPANT_ID_INVALID, the user might not be in the channel
+                    // Try to get user info first
+                    try
+                    {
+                        var userInfo = await _client.GetChatAsync(chatId, cancellationToken);
+                        if (userInfo != null)
+                        {
+                            // User exists but might not be in channel
+                            return false;
+                        }
+                    }
+                    catch
+                    {
+                        // If we can't get user info, mark as invalid
+                        user.IsLeft = true;
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        dbContext.Users.Remove(user);
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        return false;
+                    }
+                    return false;
+                }
             }
             catch (Exception ex) when (ex.Message.Contains("user not found") || 
                                      ex.Message.Contains("chat not found") || 
                                      ex.Message.Contains("invalid user_id") ||
-                                     ex.Message.Contains("bot was blocked"))
+                                     ex.Message.Contains("bot was blocked") ||
+                                     ex.Message.Contains("PARTICIPANT_ID_INVALID"))
             {
                 // If user is not found or has blocked the bot, mark them as left and remove from database
                 user.IsLeft = true;
@@ -939,8 +967,9 @@ public class TelegramBotHostedService : IHostedService
                 return false;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Console.WriteLine($"Хатогӣ дар санҷиши корбар {chatId}: {ex.Message}");
             return false;
         }
     }
@@ -972,7 +1001,8 @@ public class TelegramBotHostedService : IHostedService
         }
         catch (Exception ex) when (ex.Message.Contains("chat not found") || 
                                  ex.Message.Contains("user not found") || 
-                                 ex.Message.Contains("bot was blocked"))
+                                 ex.Message.Contains("bot was blocked") ||
+                                 ex.Message.Contains("PARTICIPANT_ID_INVALID"))
         {
             // If we can't send messages to the user, they are probably invalid
             using var scope = _scopeFactory.CreateScope();
