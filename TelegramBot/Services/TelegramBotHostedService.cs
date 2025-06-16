@@ -17,6 +17,14 @@ using User = TelegramBot.Domain.Entities.User;
 
 namespace TelegramBot.Services;
 
+public enum UserCheckResult
+{
+    Success,
+    NotMember,
+    InvalidUserOrBlocked,
+    OtherError
+}
+
 public class TelegramBotHostedService : IHostedService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -750,7 +758,7 @@ public class TelegramBotHostedService : IHostedService
 
         if (callbackQuery.Data == "check_subscription")
         {
-            if (await IsUserChannelMemberAsync(chatId, cancellationToken))
+            if (await IsUserChannelMemberAsync(chatId, cancellationToken) != UserCheckResult.Success)
             {
                 await _client.AnswerCallbackQuery(callbackQuery.Id, "✅ Шумо обунаи каналро қабул кардед!", cancellationToken: cancellationToken);
                 await _client.SendMessage(chatId, "Хуш омадед! Барои оғози тест тугмаи 'Оғози тест'-ро пахш кунед.", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
@@ -916,7 +924,7 @@ public class TelegramBotHostedService : IHostedService
         return new InlineKeyboardMarkup(buttons);
     }
 
-    private async Task<bool> IsUserChannelMemberAsync(long chatId, CancellationToken cancellationToken)
+    private async Task<UserCheckResult> IsUserChannelMemberAsync(long chatId, CancellationToken cancellationToken)
     {
         try
         {
@@ -927,7 +935,7 @@ public class TelegramBotHostedService : IHostedService
             
             if (user == null)
             {
-                return false;
+                return UserCheckResult.NotMember;
             }
 
             try
@@ -940,7 +948,8 @@ public class TelegramBotHostedService : IHostedService
                     await dbContext.SaveChangesAsync(cancellationToken);
                     dbContext.Users.Remove(user);
                     await dbContext.SaveChangesAsync(cancellationToken);
-                    return false;
+                    Console.WriteLine($"Корбар {chatId} ёфт нашуд ё бастааст (UserInfo null)");
+                    return UserCheckResult.InvalidUserOrBlocked;
                 }
 
                 // Try to send a chat action to verify user is accessible
@@ -954,7 +963,7 @@ public class TelegramBotHostedService : IHostedService
                     if (channelInfo == null)
                     {
                         Console.WriteLine($"Канал ёфт нашуд: {_channelId}");
-                        return false;
+                        return UserCheckResult.OtherError;
                     }
 
                     // Try to get channel member info
@@ -969,45 +978,29 @@ public class TelegramBotHostedService : IHostedService
                         user.IsLeft = false;
                         await dbContext.SaveChangesAsync(cancellationToken);
                         Console.WriteLine($"Корбар {chatId} аъзои канал аст");
+                        return UserCheckResult.Success;
                     }
                     else
                     {
                         Console.WriteLine($"Корбар {chatId} аъзои канал нест. Вазъият: {chatMember.Status}");
+                        return UserCheckResult.NotMember;
                     }
-
-                    return isMember;
                 }
                 catch (Exception ex) when (ex.Message.Contains("PARTICIPANT_ID_INVALID") || 
                                         ex.Message.Contains("invalid user_id"))
                 {
                     Console.WriteLine($"Хатогии PARTICIPANT_ID_INVALID барои корбар {chatId}");
-                    
-                    // Try alternative method - check if user can access channel
-                    try
-                    {
-                        // Try to get channel info
-                        var channelInfo = await _client.GetChat(_channelId, cancellationToken);
-                        if (channelInfo == null)
-                        {
-                            Console.WriteLine($"Канал ёфт нашуд: {_channelId}");
-                            return false;
-                        }
+                    Console.WriteLine($"Навъи хатогӣ: {ex.GetType().Name}");
+                    Console.WriteLine($"Матни пурраи хатогӣ: {ex}");
 
-                        // Try to get channel member count
-                        var memberCount = await _client.GetChatMemberCount(_channelId, cancellationToken);
-                        Console.WriteLine($"Шумораи аъзои канал: {memberCount}");
-
-                        // If we can get member count, channel exists and is accessible
-                        // Update user status
-                        user.IsLeft = false;
-                        await dbContext.SaveChangesAsync(cancellationToken);
-                        return true;
-                    }
-                    catch (Exception innerEx)
-                    {
-                        Console.WriteLine($"Хатогӣ дар санҷиши алтернативии канал: {innerEx.Message}");
-                        return false;
-                    }
+                    // If we get PARTICIPANT_ID_INVALID, the user is likely invalid or blocked.
+                    // Mark them as left and remove from database.
+                    user.IsLeft = true;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    dbContext.Users.Remove(user);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    Console.WriteLine($"Корбар {chatId} ҳамчун ғайрифаъол қайд карда шуд ва нест карда шуд.");
+                    return UserCheckResult.InvalidUserOrBlocked;
                 }
             }
             catch (Exception ex) when (ex.Message.Contains("user not found") || 
@@ -1023,7 +1016,7 @@ public class TelegramBotHostedService : IHostedService
                 await dbContext.SaveChangesAsync(cancellationToken);
                 dbContext.Users.Remove(user);
                 await dbContext.SaveChangesAsync(cancellationToken);
-                return false;
+                return UserCheckResult.InvalidUserOrBlocked;
             }
         }
         catch (Exception ex)
@@ -1031,7 +1024,7 @@ public class TelegramBotHostedService : IHostedService
             Console.WriteLine($"Хатогӣ дар санҷиши корбар {chatId}: {ex.Message}");
             Console.WriteLine($"Навъи хатогӣ: {ex.GetType().Name}");
             Console.WriteLine($"Матни пурраи хатогӣ: {ex}");
-            return false;
+            return UserCheckResult.OtherError;
         }
     }
 
@@ -1042,24 +1035,60 @@ public class TelegramBotHostedService : IHostedService
             // First check if we can send messages to this user
             await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
             
-            if (!await IsUserChannelMemberAsync(chatId, cancellationToken))
+            var checkResult = await IsUserChannelMemberAsync(chatId, cancellationToken);
+
+            switch (checkResult)
             {
-                var keyboard = new InlineKeyboardMarkup(new[] 
-                { 
-                    new[] { InlineKeyboardButton.WithUrl("Обуна шудан ба канал", _channelLink) },
-                    new[] { InlineKeyboardButton.WithCallbackData("🔄 Санҷиш", "check_subscription") }
-                });
-                
-                await _client.SendMessage(
-                    chatId, 
-                    "⚠️ Барои истифодаи бот, аввал ба канали мо обуна шавед!\n\n" +
-                    "Пас аз обуна шудан, тугмаи '🔄 Санҷиш'-ро пахш кунед.", 
-                    replyMarkup: keyboard, 
-                    cancellationToken: cancellationToken
-                );
-                return false;
+                case UserCheckResult.Success:
+                    return true;
+
+                case UserCheckResult.NotMember:
+                {
+                    var keyboard = new InlineKeyboardMarkup(new[] 
+                    { 
+                        new[] { InlineKeyboardButton.WithUrl("Обуна шудан ба канал", _channelLink) },
+                        new[] { InlineKeyboardButton.WithCallbackData("🔄 Санҷиш", "check_subscription") }
+                    });
+                    
+                    await _client.SendMessage(
+                        chatId, 
+                        "⚠️ Барои истифодаи бот, аввал ба канали мо обуна шавед!\n\n" +
+                        "Пас аз обуна шудан, тугмаи '🔄 Санҷиш'-ро пахш кунед.", 
+                        replyMarkup: keyboard, 
+                        cancellationToken: cancellationToken
+                    );
+                    return false;
+                }
+
+                case UserCheckResult.InvalidUserOrBlocked:
+                {
+                    var keyboard = new InlineKeyboardMarkup(new[] 
+                    {
+                        new[] { InlineKeyboardButton.WithCallbackData("🔄 Аз нав оғоз кардан", "/start") }
+                    });
+
+                    await _client.SendMessage(
+                        chatId, 
+                        "⚠️ Мутаассифона, ҳисоби шумо дастрас нест ё баста шудааст. Лутфан, ботро аз нав оғоз кунед.\n\n" +
+                        "Тугмаи '🔄 Аз нав оғоз кардан'-ро пахш кунед ё фармони /start-ро фиристед.", 
+                        replyMarkup: keyboard,
+                        cancellationToken: cancellationToken
+                    );
+                    return false;
+                }
+
+                case UserCheckResult.OtherError:
+                default:
+                {
+                    Console.WriteLine($"Хатогии номаълум ҳангоми санҷиши обуна барои корбар {chatId}");
+                    await _client.SendMessage(
+                        chatId,
+                        "❌ Хатогӣ ҳангоми санҷиши обунаи шумо рух дод. Лутфан, баъдтар кӯшиш кунед.",
+                        cancellationToken: cancellationToken
+                    );
+                    return false;
+                }
             }
-            return true;
         }
         catch (Exception ex) when (ex.Message.Contains("chat not found") || 
                                  ex.Message.Contains("user not found") || 
