@@ -374,6 +374,10 @@ public class TelegramBotHostedService : IHostedService
                         await HandleStartDuelAsync(chatId, cancellationToken);
                         break;
 
+                    case "📊 Омор":
+                        await HandleStatisticsCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
+                        break;
+
                     default:
                         await _client.SendMessage(chatId, "Фармони нодуруст!", cancellationToken: cancellationToken);
                         break;
@@ -570,6 +574,7 @@ public class TelegramBotHostedService : IHostedService
         {
             new() { new KeyboardButton("📚 Интихоби фан"), new KeyboardButton("🎯 Оғози тест") },
             new() { new KeyboardButton("🏆 Беҳтаринҳо"), new KeyboardButton("👤 Профил") },
+            new() { new KeyboardButton("📊 Омор") },
             new() { new KeyboardButton("🎮 Мусобиқа"), new KeyboardButton("💬 Тамос бо админ") },
             new() { new KeyboardButton("👥 Даъвати дӯстон"), new KeyboardButton("ℹ️ Кӯмак") }
         };
