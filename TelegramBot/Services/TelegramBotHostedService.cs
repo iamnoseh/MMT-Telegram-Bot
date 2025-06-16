@@ -394,67 +394,82 @@ public class TelegramBotHostedService : IHostedService
         else if (update.Type == UpdateType.CallbackQuery && update.CallbackQuery != null)
         {
             var callbackQuery = update.CallbackQuery;
+            if (callbackQuery == null) return;
+
             var chatId = callbackQuery.Message.Chat.Id;
+            var data = callbackQuery.Data;
 
-            if (callbackQuery.Data?.StartsWith("duel_") == true)
+            switch (data)
             {
-                var parts = callbackQuery.Data.Split('_');
-                if (parts.Length >= 3)
-                {
-                    var action = parts[1];
-                    var inviterChatId = long.Parse(parts[2]);
-                    var subjectId = parts.Length > 3 ? int.Parse(parts[3]) : 0;
-
-                    using var duelScope = _scopeFactory.CreateScope();
-                    var dbContext = duelScope.ServiceProvider.GetRequiredService<DataContext>();
-                    if (action == "accept")
+                case "check_subscription":
+                    await _client.AnswerCallbackQueryAsync(callbackQuery.Id, showAlert: false, cancellationToken: cancellationToken);
+                    await CheckChannelSubscriptionAsync(chatId, cancellationToken);
+                    break;
+                default:
+                    if (data?.StartsWith("duel_") == true)
                     {
-                        var subject = await dbContext.Subjects
-                            .Include(s => s.Questions)
-                            .FirstOrDefaultAsync(s => s.Id == subjectId, cancellationToken);
-                        if (subject == null)
+                        var parts = data.Split('_');
+                        if (parts.Length >= 3)
                         {
-                            await _client.SendMessage(chatId, "❌ Хатогӣ: Фан ёфт нашуд!", cancellationToken: cancellationToken);
+                            var action = parts[1];
+                            var inviterChatId = long.Parse(parts[2]);
+                            var subjectId = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+
+                            using var duelScope = _scopeFactory.CreateScope();
+                            var dbContext = duelScope.ServiceProvider.GetRequiredService<DataContext>();
+                            if (action == "accept")
+                            {
+                                var subject = await dbContext.Subjects
+                                    .Include(s => s.Questions)
+                                    .FirstOrDefaultAsync(s => s.Id == subjectId, cancellationToken);
+                                if (subject == null)
+                                {
+                                    await _client.SendMessage(chatId, "❌ Хатогӣ: Фан ёфт нашуд!", cancellationToken: cancellationToken);
+                                    return;
+                                }
+
+                                var game = new DuelGame
+                                {
+                                    Player1ChatId = inviterChatId,
+                                    Player2ChatId = chatId,
+                                    SubjectId = subjectId,
+                                    Subject = subject,
+                                    IsFinished = false,
+                                    CurrentRound = 1,
+                                    Player1Score = 0,
+                                    Player2Score = 0,
+                                    CreatedAt = DateTime.UtcNow
+                                };
+                                dbContext.DuelGames.Add(game);
+                                await dbContext.SaveChangesAsync(cancellationToken);
+
+                                _activeGames[game.Id] = game;
+
+                                await HandleDuelGameAsync(game, cancellationToken);
+
+                                await _client.SendMessage(inviterChatId, "🎮 Бозингар даъвати шуморо қабул кард! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
+                                await _client.SendMessage(chatId, "🎮 Шумо даъватро қабул кардед! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
+                            }
+                            else if (action == "reject")
+                            {
+                                await _client.SendMessage(inviterChatId, "❌ Бозингар даъвати шуморо рад кард.", cancellationToken: cancellationToken);
+                            }
+
+                            await _client.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
                             return;
                         }
-
-                        var game = new DuelGame
-                        {
-                            Player1ChatId = inviterChatId,
-                            Player2ChatId = chatId,
-                            SubjectId = subjectId,
-                            Subject = subject,
-                            IsFinished = false,
-                            CurrentRound = 1,
-                            Player1Score = 0,
-                            Player2Score = 0,
-                            CreatedAt = DateTime.UtcNow
-                        };
-                        dbContext.DuelGames.Add(game);
-                        await dbContext.SaveChangesAsync(cancellationToken);
-
-                        _activeGames[game.Id] = game;
-
-                        await HandleDuelGameAsync(game, cancellationToken);
-
-                        await _client.SendMessage(inviterChatId, "🎮 Бозингар даъвати шуморо қабул кард! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
-                        await _client.SendMessage(chatId, "🎮 Шумо даъватро қабул кардед! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
                     }
-                    else if (action == "reject")
+
+                    using (var scope = _scopeFactory.CreateScope())
                     {
-                        await _client.SendMessage(inviterChatId, "❌ Бозингар даъвати шуморо рад кард.", cancellationToken: cancellationToken);
+                        var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
+                        var responseService = scope.ServiceProvider.GetRequiredService<IResponseService>();
+                        var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
+                        await HandleCallbackQueryAsync(callbackQuery, questionService, responseService, subjectService,
+                            cancellationToken);
+                        break;
                     }
-
-                    await _client.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
-                    return;
-                }
             }
-
-            using var scope = _scopeFactory.CreateScope();
-            var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
-            var responseService = scope.ServiceProvider.GetRequiredService<IResponseService>();
-            var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
-            await HandleCallbackQueryAsync(callbackQuery, questionService, responseService, subjectService, cancellationToken);
         }
     }
 
@@ -1001,6 +1016,8 @@ public class TelegramBotHostedService : IHostedService
                                      ex.Message.Contains("bot was blocked"))
             {
                 Console.WriteLine($"Корбар ёфт нашуд ё ботро бастааст: {ex.Message}");
+                Console.WriteLine($"Навъи хатогӣ (internal): {ex.GetType().Name}");
+                Console.WriteLine($"Матни пурраи хатогӣ (internal): {ex}");
                 // If user is not found or has blocked the bot, mark them as left and remove from database
                 user.IsLeft = true;
                 await dbContext.SaveChangesAsync(cancellationToken);
@@ -1012,6 +1029,8 @@ public class TelegramBotHostedService : IHostedService
         catch (Exception ex)
         {
             Console.WriteLine($"Хатогӣ дар санҷиши корбар {chatId}: {ex.Message}");
+            Console.WriteLine($"Навъи хатогӣ: {ex.GetType().Name}");
+            Console.WriteLine($"Матни пурраи хатогӣ: {ex}");
             return false;
         }
     }
