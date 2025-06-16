@@ -255,6 +255,7 @@ public class TelegramBotHostedService : IHostedService
                             new() { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
                             new() { new KeyboardButton("📚 Адабиёти тоҷик"), new KeyboardButton("⚛️ Физика") },
                             new() { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("📐 Математика") },
+                            new() { new KeyboardButton("🫀 Анатомия") },
                             new() { new KeyboardButton("⬅️ Бозгашт") }
                         },
                         ResizeKeyboard = true
@@ -272,6 +273,7 @@ public class TelegramBotHostedService : IHostedService
                 case "⚛️ Физика":
                 case "🇷🇺 Забони русӣ":
                 case "📐 Математика":
+                case "🫀 Анатомия":
                     await HandleSubjectSelectionAsync(chatId, text, cancellationToken);
                     break;
 
@@ -516,6 +518,7 @@ public class TelegramBotHostedService : IHostedService
             "⚛️ Физика" => 8,
             "🇷🇺 Забони русӣ" => 9,
             "📐 Математика" => 10,
+            "🫀 Анатомия" => 11,
             _ => 0
         };
         if (subjectId == 0) return;
@@ -1050,7 +1053,25 @@ public class TelegramBotHostedService : IHostedService
 
             var subjectStats = subjects
                 .OrderByDescending(s => questionCounts.GetValueOrDefault(s.Id, 0))
-                .Select(s => $"• {s.Name}: {(questionCounts.TryGetValue(s.Id, out int count) ? count : 0)} савол")
+                .Select(s => {
+                    var count = questionCounts.GetValueOrDefault(s.Id, 0);
+                    var emoji = s.Name switch
+                    {
+                        "Химия" => "🧪",
+                        "Биология" => "🔬",
+                        "Забони тоҷикӣ" => "📖",
+                        "English" => "🌍",
+                        "Таърих" => "📜",
+                        "География" => "🌍",
+                        "Адабиёти тоҷик" => "📚",
+                        "Физика" => "⚛️",
+                        "Забони русӣ" => "🇷🇺",
+                        "Математика" => "📐",
+                        "Анатомия" => "🫀",
+                        _ => "📚"
+                    };
+                    return $"• {emoji} {s.Name}: {count:N0} савол";
+                })
                 .ToList();
 
             var statsMessage =
