@@ -53,7 +53,7 @@ public class TelegramBotHostedService : IHostedService
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
-        var token = "8005745055:AAEIqUs8wgo9ANJkhgN7b7MWomjq4z5bRLw"; // Replace with your actual token
+        var token = "7418214830:AAGf1xCyFFIa-h2yVjFn7SaD6c069vsRJ8A"; // Replace with your actual token
         _client = new TelegramBotClient(token);
         _channelId = configuration["TelegramChannel:ChannelId"] ?? throw new ArgumentNullException("ID-и канал ёфт нашуд!");
         _channelLink = configuration["TelegramChannel:ChannelLink"] ?? throw new ArgumentNullException("Пайванди канал ёфт нашуд!");
@@ -598,12 +598,14 @@ private async Task<bool> IsUserRegisteredAsync(long chatId, IServiceProvider ser
 
 private async Task SendRegistrationRequestAsync(long chatId, CancellationToken cancellationToken)
 {
-    Console.WriteLine($"[REGISTRATION] Sending registration request to user {chatId}");
+    if (chatId < 0) // Group or channel
+    {
+        await _client.SendMessage(chatId, "Барои сабти ном ба бот дар private chat нависед!", cancellationToken: cancellationToken);
+        return;
+    }
     var requestContactButton = new KeyboardButton("Рақами телефон") { RequestContact = true };
     var keyboard = new ReplyKeyboardMarkup(new[] { new[] { requestContactButton } }) { ResizeKeyboard = true, OneTimeKeyboard = true };
-    await _client.SendMessage(chatId, "Барои сабти ном тугмаи зеринро пахш кунед ва рақами телефони худро фиристед!", 
-        replyMarkup: keyboard, 
-        cancellationToken: cancellationToken);
+    await _client.SendMessage(chatId, "Барои сабти ном тугмаи зеринро пахш кунед ва рақами телефони худро фиристед!", replyMarkup: keyboard, cancellationToken: cancellationToken);
 }
 
 private async Task HandleContactRegistrationAsync(Message message, IServiceProvider serviceProvider, CancellationToken cancellationToken)
