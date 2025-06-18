@@ -525,7 +525,7 @@ public class TelegramBotHostedService : IHostedService
                     await HandleProfileCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
                     break;
 
-                case "✏️ Иваз кардани ном":
+                case "✏️ Ивази ном":
                     if (!isRegistered)
                     {
                         await SendRegistrationRequestAsync(chatId, cancellationToken);
@@ -736,7 +736,7 @@ private async Task HandleCityRegistrationAsync(long chatId, string city, IServic
         };
         if (user != null && !user.HasChangedName)
         {
-            buttons[1].Add(new KeyboardButton("✏️ Иваз кардани ном"));
+            buttons[1].Add(new KeyboardButton("✏️ Ивази ном"));
         }
         if (isAdmin)
         {
