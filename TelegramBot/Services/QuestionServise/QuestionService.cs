@@ -85,6 +85,13 @@ public class QuestionService : IQuestionService
 
     public async Task<QuestionDTO> CreateQuestion(QuestionDTO questionDto)
     {
+        // Check for duplicate question (by text and subject)
+        bool exists = await _context.Questions.AnyAsync(q => q.QuestionText == questionDto.QuestionText && q.SubjectId == questionDto.SubjectId);
+        if (exists)
+        {
+            // Duplicate found, do not add
+            return null;
+        }
         var question = new Question
         {
             QuestionText = questionDto.QuestionText,
@@ -98,7 +105,6 @@ public class QuestionService : IQuestionService
                 CorrectAnswer = questionDto.CorrectAnswer
             }
         };
-
         _context.Questions.Add(question);
         await _context.SaveChangesAsync();
         return questionDto;

@@ -1372,7 +1372,10 @@ private async Task HandleCityRegistrationAsync(long chatId, string city, IServic
         if (user != null)
         {
             int level = GetLevel(user.Score);
-            string profileText = $"<b>Профил:</b>\n    {user.Name}\n<b>Шаҳр:</b> {user.City}\n<b>Хол:</b> {user.Score}\n<b>Сатҳ:</b> {level}";
+            // Calculate user rank
+            var allScores = await dbContext.Users.OrderByDescending(u => u.Score).Select(u => u.ChatId).ToListAsync(cancellationToken);
+            int rank = allScores.IndexOf(chatId) + 1;
+            string profileText = $"<b>Профил:</b>\n    {user.Name}\n<b>Шаҳр:</b> {user.City}\n<b>Хол:</b> {user.Score}\n<b>Сатҳ:</b> {level}\n<b>Рейтинг:</b> {rank}-ум";
             await _client.SendMessage(chatId, profileText, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
         }
         else
@@ -1594,11 +1597,12 @@ private async Task HandleCityRegistrationAsync(long chatId, string city, IServic
     {
         if (message.Document == null) return;
         var chatId = message.Chat.Id;
-        var fileName = message.Document.FileName ?? "бе ном.docx";
+        var fileName = message.Document.FileName ?? "бе ном";
         var username = !string.IsNullOrWhiteSpace(message.From?.Username) ? $"@{message.From.Username}" : message.From?.FirstName ?? "Корбари номаълум";
-        if (!fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+        // Accept both .docx and .pdf
+        if (!fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) && !fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
         {
-            await _client.SendMessage(chatId, "❌ Лутфан, танҳо файли .docx фиристед!", cancellationToken: cancellationToken);
+            await _client.SendMessage(chatId, "❌ Лутфан, танҳо файли .docx ё .pdf фиристед!", cancellationToken: cancellationToken);
             return;
         }
         try
@@ -1614,11 +1618,31 @@ private async Task HandleCityRegistrationAsync(long chatId, string city, IServic
                 return;
             }
             await NotifyAdminsAsync($"<b>📥 Файли нав аз {username}</b>\nНоми файл: {fileName}\nДар ҳоли коркард...", cancellationToken);
+            // Only .docx is parsed for questions, .pdf support must be implemented in ParseQuestionsDocx
             var questions = ParseQuestionsDocx.ParseQuestionsFromDocx(stream, currentSubject);
-            foreach (var question in questions) await questionService.CreateQuestion(question);
-            var successMessage = $"<b>✅ {questions.Count} савол бо муваффақият илова шуд!</b>";
-            await _client.SendMessage(chatId, successMessage, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
-            await NotifyAdminsAsync($"<b>✅ Аз файли {fileName}</b>\nАз ҷониби {username} фиристода шуд,\n{questions.Count} савол бо муваффақият илова шуд!", cancellationToken);
+            int added = 0, duplicate = 0, error = 0;
+            var errorMessages = new List<string>();
+            foreach (var question in questions)
+            {
+                try
+                {
+                    var result = await questionService.CreateQuestion(question);
+                    if (result != null) added++;
+                    else duplicate++;
+                }
+                catch (Exception ex)
+                {
+                    error++;
+                    errorMessages.Add($"{error}. {question.QuestionText} — {ex.Message}");
+                }
+            }
+            // Get subject name
+            var subject = await subjectService.GetSubjectById(currentSubject);
+            string subjectName = subject?.Name ?? "";
+            string errorList = errorMessages.Count > 0 ? string.Join("\n", errorMessages) : "-";
+            var summary = $"<b>📚 Фан:</b> {subjectName}\n<b>✅ Саволҳои нав:</b> {added}\n<b>♻️ Такрорӣ:</b> {duplicate}\n<b>❌ Хатогӣ:</b> {error}\n{errorList}\n<b>Ҷамъ:</b> {questions.Count}";
+            await _client.SendMessage(chatId, summary, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
+            await NotifyAdminsAsync($"<b>✅ Аз файли {fileName}</b>\nАз ҷониби {username} фиристода шуд,\n{added} савол нав, {duplicate} такрорӣ, {error} хатогӣ, фан: {subjectName}", cancellationToken);
         }
         catch (Exception ex)
         {
