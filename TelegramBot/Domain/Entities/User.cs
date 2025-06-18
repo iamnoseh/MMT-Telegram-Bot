@@ -11,6 +11,7 @@ public class User
     public int Score { get; set; }
     public bool IsLeft { get; set; } = false;
     public bool IsAdmin { get; set; } = false;
+    public bool HasChangedName { get; set; } = false; // Track if user has changed name once
     // Алоқа бо ҷавобҳои корбар
     public List<UserResponse> UserResponses { get; set; } = new();
 

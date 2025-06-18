@@ -47,12 +47,13 @@ public class TelegramBotHostedService : IHostedService
     private const int BaseScore = 10;
     private const int SpeedBonus = 2;
     private readonly HashSet<int> NoTimerSubjects = new() { 1, 8, 10 }; // 1 - Химия, 8 - Физика, 10 - Математика
+    private readonly Dictionary<long, bool> _pendingNameChange = new(); // Track users changing name
 
     public TelegramBotHostedService(IServiceScopeFactory scopeFactory, IConfiguration configuration)
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
-        var token = "8005745055:AAEIqUs8wgo9ANJkhgN7b7MWomjq4z5bRLw"; // Replace with your actual token
+        var token = "7418214830:AAGf1xCyFFIa-h2yVjFn7SaD6c069vsRJ8A"; // Replace with your actual token
         _client = new TelegramBotClient(token);
         _channelId = configuration["TelegramChannel:ChannelId"] ?? throw new ArgumentNullException("ID-и канал ёфт нашуд!");
         _channelLink = configuration["TelegramChannel:ChannelLink"] ?? throw new ArgumentNullException("Пайванди канал ёфт нашуд!");
@@ -138,438 +139,592 @@ public class TelegramBotHostedService : IHostedService
         return Task.CompletedTask;
     }
 
-    private async Task HandleUpdateAsync(Update update, CancellationToken cancellationToken)
+   private async Task HandleUpdateAsync(Update update, CancellationToken cancellationToken)
+{
+    if (update.Type == UpdateType.Message && update.Message != null)
     {
-        if (update.Type == UpdateType.Message && update.Message != null)
+        var message = update.Message;
+        var chatId = message.Chat.Id;
+        try
         {
-            var message = update.Message;
-            var chatId = message.Chat.Id;
+            await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
+            var text = message.Text;
+            Console.WriteLine($"[DEBUG] Message from user {chatId}: Text='{text}', Contact={message.Contact != null}, ContactPhone={message.Contact?.PhoneNumber}");
+            
+            using var scope = _scopeFactory.CreateScope();
+            var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
+            var optionService = scope.ServiceProvider.GetRequiredService<IOptionService>();
+            var responseService = scope.ServiceProvider.GetRequiredService<IResponseService>();
+            var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
 
-            try
+            // Check if user is already registered
+            bool isRegistered = await IsUserRegisteredAsync(chatId, scope.ServiceProvider, cancellationToken);
+
+            // Handle contact sharing (phone number)
+            if (message.Contact != null)
             {
-                // Check if we can send messages to this user before processing
-                await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
-                
-                // Continue with normal message handling
-                var text = message.Text;
-
-                using var scope = _scopeFactory.CreateScope();
-                var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
-                var optionService = scope.ServiceProvider.GetRequiredService<IOptionService>();
-                var responseService = scope.ServiceProvider.GetRequiredService<IResponseService>();
-                var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
-
-                if (text?.StartsWith("/start ") == true)
-                {
-                    var parameter = text.Substring(7);
-                    if (parameter.StartsWith("duel_"))
-                    {
-                        var parts = parameter.Split('_');
-                        if (parts.Length == 3 && long.TryParse(parts[1], out var inviterChatId) && int.TryParse(parts[2], out var subjectId))
-                        {
-                            if (chatId == inviterChatId)
-                            {
-                                await _client.SendMessage(chatId, "❌ Шумо наметавонед худатонро даъват кунед!", cancellationToken: cancellationToken);
-                                return;
-                            }
-                            await HandleDuelInviteAsync(chatId, inviterChatId, subjectId, cancellationToken);
-                            return;
-                        }
-                    }
-                    else if (parameter.StartsWith("ref_"))
-                    {
-                        var referrerChatId = long.Parse(parameter.Substring(4));
-                        if (chatId != referrerChatId)
-                        {
-                            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-                            var invitation = new Invitation
-                            {
-                                InviterChatId = referrerChatId,
-                                InviteeChatId = chatId,
-                                Status = "pending"
-                            };
-                            dbContext.Invitations.Add(invitation);
-                            await dbContext.SaveChangesAsync(cancellationToken);
-                        }
-                    }
-                }
-
-                if (_pendingBroadcast.ContainsKey(chatId) && _pendingBroadcast[chatId])
-                {
-                    if (text == "❌ Бекор кардан")
-                    {
-                        CleanupBroadcastState(chatId);
-                        await _client.SendMessage(chatId, "Фиристодани паём бекор карда шуд!", replyMarkup: GetAdminButtons(), cancellationToken: cancellationToken);
-                        return;
-                    }
-                    await HandleBroadcastMessageAsync(chatId, text, scope.ServiceProvider, cancellationToken);
-                    return;
-                }
-
-                if (message.Document != null)
-                {
-                    if (await IsUserAdminAsync(chatId, cancellationToken))
-                    {
-                        if (!_userCurrentSubject.ContainsKey(chatId))
-                        {
-                            await _client.SendMessage(chatId, "❌ Лутфан, аввал фанро интихоб кунед!", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
-                            return;
-                        }
-                        await HandleFileUploadAsync(message, questionService, subjectService, cancellationToken);
-                    }
-                    else
-                    {
-                        await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд файл бор кунанд!", cancellationToken: cancellationToken);
-                    }
-                    return;
-                }
-
-                if (text != "/start" && text != "/register")
-                {
-                    if (!await CheckChannelSubscriptionAsync(chatId, cancellationToken))
-                    {
-                        return;
-                    }
-                }
-
-                if (message.Contact != null)
+                if (!isRegistered)
                 {
                     await HandleContactRegistrationAsync(message, scope.ServiceProvider, cancellationToken);
                     return;
                 }
-
-                if (_pendingRegistrations.ContainsKey(chatId))
+                else
                 {
-                    var reg = _pendingRegistrations[chatId];
-                    if (!reg.IsNameReceived)
-                    {
-                        await HandleNameRegistrationAsync(chatId, text, cancellationToken);
-                        return;
-                    }
-                    else if (reg.IsNameReceived && !reg.IsCityReceived)
-                    {
-                        await HandleCityRegistrationAsync(chatId, text, scope.ServiceProvider, cancellationToken);
-                        return;
-                    }
-                }
-
-                switch (text)
-                {
-                    case "/start":
-                        if (!await IsUserRegisteredAsync(chatId, scope.ServiceProvider, cancellationToken))
-                        {
-                            await SendRegistrationRequestAsync(chatId, cancellationToken);
-                        }
-                        else
-                        {
-                            await _client.SendMessage(chatId, "Хуш омаед! Барои оғози тест тугмаи 'Оғози тест'-ро пахш кунед.", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
-                        }
-                        break;
-
-                    case "/register":
-                        if (!await IsUserRegisteredAsync(chatId, scope.ServiceProvider, cancellationToken))
-                        {
-                            await SendRegistrationRequestAsync(chatId, cancellationToken);
-                        }
-                        else
-                        {
-                            await _client.SendMessage(chatId, "Шумо аллакай сабти ном шудаед!", cancellationToken: cancellationToken);
-                        }
-                        break;
-
-                    case "🎯 Оғози тест":
-                        if (!await IsUserRegisteredAsync(chatId, scope.ServiceProvider, cancellationToken))
-                        {
-                            await _client.SendMessage(chatId, "Лутфан, аввал дар бот сабти ном кунед. Барои сабти ном /register -ро пахш кунед.", cancellationToken: cancellationToken);
-                        }
-                        else
-                        {
-                            _userScores[chatId] = 0;
-                            _userQuestions[chatId] = 0;
-                            await HandleNewQuestionAsync(chatId, questionService, subjectService, cancellationToken);
-                        }
-                        break;
-
-                    case "🏆 Беҳтаринҳо":
-                        await HandleTopCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
-                        break;
-
-                    case "👤 Профил":
-                        await HandleProfileCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
-                        break;
-
-                    case "ℹ️ Кӯмак":
-                        await HandleHelpCommandAsync(chatId, cancellationToken);
-                        break;
-
-                    case "📚 Интихоби фан":
-                        var subjectKeyboard = new ReplyKeyboardMarkup
-                        {
-                            Keyboard = new List<List<KeyboardButton>>
-                            {
-                                new() { new KeyboardButton("🧪 Химия"), new KeyboardButton("🔬 Биология") },
-                                new() { new KeyboardButton("📖 Забони тоҷикӣ"), new KeyboardButton("🌍 Забони англисӣ") },
-                                new() { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
-                                new() { new KeyboardButton("📚 Адабиёти тоҷик"), new KeyboardButton("⚛️ Физика") },
-                                new() { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("📐 Математика") },
-                                new() { new KeyboardButton("🫀 Анатомия") },
-                                new() { new KeyboardButton("⬅️ Бозгашт") }
-                            },
-                            ResizeKeyboard = true
-                        };
-                        await _client.SendMessage(chatId, "Лутфан, фанро интихоб кунед:", replyMarkup: subjectKeyboard, cancellationToken: cancellationToken);
-                        break;
-
-                    case "🧪 Химия":
-                    case "🔬 Биология":
-                    case "📖 Забони тоҷикӣ":
-                    case "🌍 Забони англисӣ":
-                    case "📜 Таърих":
-                    case "🌍 География":
-                    case "📚 Адабиёти тоҷик":
-                    case "⚛️ Физика":
-                    case "🇷🇺 Забони русӣ":
-                    case "📐 Математика":
-                    case "🫀 Анатомия":
-                        await HandleSubjectSelectionAsync(chatId, text, cancellationToken);
-                        break;
-
-                    case "⬅️ Бозгашт":
-                        await _client.SendMessage(chatId, "Бозгашт ба менюи асосӣ", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
-                        break;
-
-                    case "👨‍💼 Админ":
-                        await HandleAdminCommandAsync(chatId, cancellationToken);
-                        break;
-
-                    case "📢 Фиристодани паём":
-                        if (await IsUserAdminAsync(chatId, cancellationToken))
-                        {
-                            _pendingBroadcast[chatId] = true;
-                            var cancelKeyboard = new ReplyKeyboardMarkup(new[] { new KeyboardButton("❌ Бекор кардан") }) { ResizeKeyboard = true };
-                            await _client.SendMessage(chatId, "📢 Лутфан, паёмеро, ки ба ҳамаи корбарон фиристода мешавад, ворид кунед:", replyMarkup: cancelKeyboard, cancellationToken: cancellationToken);
-                        }
-                        else
-                        {
-                            await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд паём фиристанд!", cancellationToken: cancellationToken);
-                        }
-                        break;                case "💬 Тамос бо админ":
-                        var adminButton = new InlineKeyboardMarkup(new[]
-                        {
-                            new[] { InlineKeyboardButton.WithUrl("💬 Тамос бо админ", "https://t.me/iamnoseh") }
-                        });
-                        await _client.SendMessage(
-                            chatId,
-                            "Барои фиристодани савол ё дархост ба админ, ба ин суроға муроҷиат кунед:",
-                            replyMarkup: adminButton,
-                            cancellationToken: cancellationToken
-                        );
-                        break;
-
-                    case "👥 Даъвати дӯстон":
-                        await HandleInviteFriendsAsync(chatId, cancellationToken);
-                        break;
-
-                    case "🎮 Мусобиқа":
-                        await HandleStartDuelAsync(chatId, cancellationToken);
-                        break;
-
-                    case "📊 Омор":
-                        await HandleStatisticsCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
-                        break;
-
-                    default:
-                        await _client.SendMessage(chatId, "Фармони нодуруст!", cancellationToken: cancellationToken);
-                        break;
+                    await _client.SendMessage(chatId, "Шумо аллакай ба қайд гирифта шудаед.", 
+                        replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                        cancellationToken: cancellationToken);
+                    return;
                 }
             }
-            catch (Exception ex) when (ex.Message.Contains("chat not found") || 
-                                     ex.Message.Contains("user not found") || 
-                                     ex.Message.Contains("bot was blocked"))
+
+            // Handle pending registration steps
+            if (!isRegistered && _pendingRegistrations.ContainsKey(chatId))
             {
-                // If we can't send messages to the user, they are probably invalid
-                using var scope = _scopeFactory.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-                var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+                var reg = _pendingRegistrations[chatId];
                 
-                if (user != null)
+                if (!reg.IsNameReceived)
                 {
-                    user.IsLeft = true;
-                    await dbContext.SaveChangesAsync(cancellationToken);
+                    Console.WriteLine($"[REGISTRATION] User {chatId} sending name: {text}");
+                    await HandleNameRegistrationAsync(chatId, text, cancellationToken);
+                    return;
+                }
+                else if (reg.IsNameReceived && !reg.IsCityReceived)
+                {
+                    Console.WriteLine($"[REGISTRATION] User {chatId} sending city: {text}");
+                    await HandleCityRegistrationAsync(chatId, text, scope.ServiceProvider, cancellationToken);
+                    return;
+                }
+            }
+
+            // Handle /start command with parameters
+            if (text?.StartsWith("/start ") == true)
+            {
+                var parameter = text.Substring(7);
+                if (parameter.StartsWith("duel_"))
+                {
+                    var parts = parameter.Split('_');
+                    if (parts.Length == 3 && long.TryParse(parts[1], out var inviterChatId) && int.TryParse(parts[2], out var subjectId))
+                    {
+                        if (chatId == inviterChatId)
+                        {
+                            await _client.SendMessage(chatId, "❌ Шумо наметавонед худатонро даъват кунед!", cancellationToken: cancellationToken);
+                            return;
+                        }
+                        
+                        if (!isRegistered)
+                        {
+                            await SendRegistrationRequestAsync(chatId, cancellationToken);
+                            return;
+                        }
+                        
+                        await HandleDuelInviteAsync(chatId, inviterChatId, subjectId, cancellationToken);
+                        return;
+                    }
+                }
+                else if (parameter.StartsWith("ref_"))
+                {
+                    var referrerChatId = long.Parse(parameter.Substring(4));
+                    if (chatId != referrerChatId)
+                    {
+                        var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+                        var invitation = new Invitation
+                        {
+                            InviterChatId = referrerChatId,
+                            InviteeChatId = chatId,
+                            Status = "pending"
+                        };
+                        dbContext.Invitations.Add(invitation);
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
                     
-                    // Remove user after marking them as left
-                    dbContext.Users.Remove(user);
-                    await dbContext.SaveChangesAsync(cancellationToken);
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                }
+            }
+
+            // Handle broadcast messages for admins
+            if (_pendingBroadcast.ContainsKey(chatId) && _pendingBroadcast[chatId])
+            {
+                if (text == "❌ Бекор кардан")
+                {
+                    CleanupBroadcastState(chatId);
+                    await _client.SendMessage(chatId, "Фиристодани паём бекор карда шуд!", 
+                        replyMarkup: GetAdminButtons(), 
+                        cancellationToken: cancellationToken);
+                    return;
+                }
+                await HandleBroadcastMessageAsync(chatId, text, scope.ServiceProvider, cancellationToken);
+                return;
+            }
+
+            // Handle file uploads for admins
+            if (message.Document != null)
+            {
+                if (await IsUserAdminAsync(chatId, cancellationToken))
+                {
+                    if (!_userCurrentSubject.ContainsKey(chatId))
+                    {
+                        await _client.SendMessage(chatId, "❌ Лутфан, аввал фанро интихоб кунед!", 
+                            replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                            cancellationToken: cancellationToken);
+                        return;
+                    }
+                    await HandleFileUploadAsync(message, questionService, subjectService, cancellationToken);
+                }
+                else
+                {
+                    await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд файл бор кунанд!", 
+                        cancellationToken: cancellationToken);
                 }
                 return;
             }
-        }
-        else if (update.Type == UpdateType.CallbackQuery && update.CallbackQuery != null)
-        {
-            var callbackQuery = update.CallbackQuery;
-            if (callbackQuery == null) return;
 
-            var chatId = callbackQuery.Message.Chat.Id;
-            var data = callbackQuery.Data;
-
-            switch (data)
+            // Check channel subscription for registered users (except for registration commands)
+            if (isRegistered && text != "/start" && text != "/register")
             {
-                case "check_subscription":
-                    await _client.AnswerCallbackQueryAsync(callbackQuery.Id, showAlert: false, cancellationToken: cancellationToken);
-                    await CheckChannelSubscriptionAsync(chatId, cancellationToken);
-                    break;
-                default:
-                    if (data?.StartsWith("duel_") == true)
-                    {
-                        var parts = data.Split('_');
-                        if (parts.Length >= 3)
-                        {
-                            var action = parts[1];
-                            var inviterChatId = long.Parse(parts[2]);
-                            var subjectId = parts.Length > 3 ? int.Parse(parts[3]) : 0;
-
-                            using var duelScope = _scopeFactory.CreateScope();
-                            var dbContext = duelScope.ServiceProvider.GetRequiredService<DataContext>();
-                            if (action == "accept")
-                            {
-                                var subject = await dbContext.Subjects
-                                    .Include(s => s.Questions)
-                                    .FirstOrDefaultAsync(s => s.Id == subjectId, cancellationToken);
-                                if (subject == null)
-                                {
-                                    await _client.SendMessage(chatId, "❌ Хатогӣ: Фан ёфт нашуд!", cancellationToken: cancellationToken);
-                                    return;
-                                }
-
-                                var game = new DuelGame
-                                {
-                                    Player1ChatId = inviterChatId,
-                                    Player2ChatId = chatId,
-                                    SubjectId = subjectId,
-                                    Subject = subject,
-                                    IsFinished = false,
-                                    CurrentRound = 1,
-                                    Player1Score = 0,
-                                    Player2Score = 0,
-                                    CreatedAt = DateTime.UtcNow
-                                };
-                                dbContext.DuelGames.Add(game);
-                                await dbContext.SaveChangesAsync(cancellationToken);
-
-                                _activeGames[game.Id] = game;
-
-                                await HandleDuelGameAsync(game, cancellationToken);
-
-                                await _client.SendMessage(inviterChatId, "🎮 Бозингар даъвати шуморо қабул кард! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
-                                await _client.SendMessage(chatId, "🎮 Шумо даъватро қабул кардед! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
-                            }
-                            else if (action == "reject")
-                            {
-                                await _client.SendMessage(inviterChatId, "❌ Бозингар даъвати шуморо рад кард.", cancellationToken: cancellationToken);
-                            }
-
-                            await _client.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
-                            return;
-                        }
-                    }
-
-                    using (var scope = _scopeFactory.CreateScope())
-                    {
-                        var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
-                        var responseService = scope.ServiceProvider.GetRequiredService<IResponseService>();
-                        var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
-                        await HandleCallbackQueryAsync(callbackQuery, questionService, responseService, subjectService,
-                            cancellationToken);
-                        break;
-                    }
-            }
-        }
-    }
-
-    private async Task<bool> IsUserRegisteredAsync(long chatId, IServiceProvider serviceProvider, CancellationToken cancellationToken)
-    {
-        var dbContext = serviceProvider.GetRequiredService<DataContext>();
-        return await dbContext.Users.AnyAsync(u => u.ChatId == chatId, cancellationToken);
-    }
-
-    private async Task SendRegistrationRequestAsync(long chatId, CancellationToken cancellationToken)
-    {
-        var requestContactButton = new KeyboardButton("Рақами телефон") { RequestContact = true };
-        var keyboard = new ReplyKeyboardMarkup(new[] { new[] { requestContactButton } }) { ResizeKeyboard = true, OneTimeKeyboard = true };
-        await _client.SendMessage(chatId, "Барои сабти ном тугмаи зеринро пахш кунед!", replyMarkup: keyboard, cancellationToken: cancellationToken);
-    }
-
-    private async Task HandleContactRegistrationAsync(Message message, IServiceProvider serviceProvider, CancellationToken cancellationToken)
-    {
-        var chatId = message.Chat.Id;
-        var contact = message.Contact;
-        var autoUsername = !string.IsNullOrWhiteSpace(message.Chat.Username) ? message.Chat.Username : message.Chat.FirstName;
-
-        if (!_pendingRegistrations.ContainsKey(chatId))
-        {
-            _pendingRegistrations[chatId] = new RegistrationInfo { Contact = contact, AutoUsername = autoUsername, IsNameReceived = false, IsCityReceived = false };
-            await _client.SendMessage(chatId, "Ташаккур! Акнун номатонро ворид кунед.", replyMarkup: new ReplyKeyboardRemove(), cancellationToken: cancellationToken);
-        }
-        else
-        {
-            await _client.SendMessage(chatId, "Лутфан, номатонро ворид кунед, то сабти номро анҷом диҳед.", cancellationToken: cancellationToken);
-        }
-    }
-
-    private async Task HandleNameRegistrationAsync(long chatId, string name, CancellationToken cancellationToken)
-    {
-        if (!_pendingRegistrations.ContainsKey(chatId)) return;
-        var regInfo = _pendingRegistrations[chatId];
-        regInfo.Name = name;
-        regInfo.IsNameReceived = true;
-        await _client.SendMessage(chatId, "Лутфан, шаҳратонро ворид кунед.", replyMarkup: new ReplyKeyboardRemove(), cancellationToken: cancellationToken);
-    }
-
-    private async Task HandleCityRegistrationAsync(long chatId, string city, IServiceProvider serviceProvider, CancellationToken cancellationToken)
-    {
-        if (!_pendingRegistrations.ContainsKey(chatId)) return;
-        var regInfo = _pendingRegistrations[chatId];
-        regInfo.City = city;
-        regInfo.IsCityReceived = true;
-
-        try
-        {
-            var dbContext = serviceProvider.GetRequiredService<DataContext>();
-            var user = new User { ChatId = chatId, Username = regInfo.AutoUsername, Name = regInfo.Name, PhoneNumber = regInfo.Contact.PhoneNumber, City = regInfo.City, Score = 0 };
-            dbContext.Users.Add(user);
-            await dbContext.SaveChangesAsync(cancellationToken);
-
-            // Санҷиш ва қабули даъват
-            var invitation = await dbContext.Invitations.FirstOrDefaultAsync(i => i.InviteeChatId == chatId && i.Status == "pending", cancellationToken);
-            if (invitation != null)
-            {
-                invitation.Status = "accepted";
-                invitation.AcceptedAt = DateTime.UtcNow;
-                var inviter = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == invitation.InviterChatId, cancellationToken);
-                if (inviter != null)
+                if (!await CheckChannelSubscriptionAsync(chatId, cancellationToken))
                 {
-                    inviter.Score += 5; // Илова кардани 5 бал ба даъваткунанда
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                    await _client.SendMessage(inviter.ChatId, "🎉 Дӯсти шумо бо пайванди даъват сабти ном шуд! Шумо 5 бал гирифтед!", cancellationToken: cancellationToken);
+                    return;
                 }
             }
 
-            await _client.SendMessage(chatId, "Сабти номи шумо бо муваффақият анҷом ёфт!\nБарои оғози тест тугмаи 'Оғози тест'-ро пахш кунед!", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
+            // Handle name change
+            if (_pendingNameChange.TryGetValue(chatId, out var pending) && pending)
+            {
+                using var innerScope = _scopeFactory.CreateScope();
+                var dbContext = innerScope.ServiceProvider.GetRequiredService<DataContext>();
+                var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+                if (user != null && !user.HasChangedName)
+                {
+                    user.Name = text;
+                    user.HasChangedName = true;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    await _client.SendMessage(chatId, $"Номи шумо ба '{text}' иваз шуд!", 
+                        replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await _client.SendMessage(chatId, "Шумо аллакай як бор номи худро иваз кардаед.", 
+                        replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                        cancellationToken: cancellationToken);
+                }
+                _pendingNameChange.Remove(chatId);
+                return;
+            }
+
+            // Handle commands based on registration status
+            switch (text)
+            {
+                case "/start":
+                    Console.WriteLine($"[REGISTRATION] /start command from user {chatId}");
+                    if (!isRegistered)
+                    {
+                        Console.WriteLine($"[REGISTRATION] User {chatId} is not registered, sending registration request");
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[REGISTRATION] User {chatId} is already registered, showing main menu");
+                        await _client.SendMessage(chatId, "Хуш омадед! Барои оғози тест тугмаи 'Оғози тест'-ро пахш кунед.", 
+                            replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                            cancellationToken: cancellationToken);
+                    }
+                    break;
+
+                case "/register":
+                    Console.WriteLine($"[REGISTRATION] /register command from user {chatId}");
+                    if (!isRegistered)
+                    {
+                        Console.WriteLine($"[REGISTRATION] User {chatId} is not registered, sending registration request");
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[REGISTRATION] User {chatId} is already registered, showing message");
+                        await _client.SendMessage(chatId, "Шумо аллакай ба қайд гирифта шудаед.", 
+                            replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                            cancellationToken: cancellationToken);
+                    }
+                    break;
+
+                case "Рақами телефон":
+                    Console.WriteLine($"[REGISTRATION] User {chatId} pressed 'Рақами телефон' button as text");
+                    if (!isRegistered)
+                    {
+                        Console.WriteLine($"[REGISTRATION] User {chatId} is not registered, sending registration request again");
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                    }
+                    else
+                    {
+                        await _client.SendMessage(chatId, "Шумо аллакай ба қайд гирифта шудаед.", 
+                            replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                            cancellationToken: cancellationToken);
+                    }
+                    break;
+
+                // Commands that require registration
+                case "🎯 Оғози тест":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    _userScores[chatId] = 0;
+                    _userQuestions[chatId] = 0;
+                    await HandleNewQuestionAsync(chatId, questionService, subjectService, cancellationToken);
+                    break;
+
+                case "📚 Интихоби фан":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    var subjectKeyboard = new ReplyKeyboardMarkup(new[]
+                    {
+                        new[] { new KeyboardButton("🧪 Химия"), new KeyboardButton("🔬 Биология") },
+                        new[] { new KeyboardButton("📖 Забони тоҷикӣ"), new KeyboardButton("🌍 Забони англисӣ") },
+                        new[] { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
+                        new[] { new KeyboardButton("📚 Адабиёти тоҷик"), new KeyboardButton("⚛️ Физика") },
+                        new[] { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("📐 Математика") },
+                        new[] { new KeyboardButton("🫀 Анатомия") },
+                        new[] { new KeyboardButton("⬅️ Бозгашт") }
+                    })
+                    {
+                        ResizeKeyboard = true
+                    };
+                    await _client.SendMessage(chatId, "Лутфан, фанро интихоб кунед:", 
+                        replyMarkup: subjectKeyboard, 
+                        cancellationToken: cancellationToken);
+                    break;
+
+                case "🧪 Химия":
+                case "🔬 Биология":
+                case "📖 Забони тоҷикӣ":
+                case "🌍 Забони англисӣ":
+                case "📜 Таърих":
+                case "🌍 География":
+                case "📚 Адабиёти тоҷик":
+                case "⚛️ Физика":
+                case "🇷🇺 Забони русӣ":
+                case "📐 Математика":
+                case "🫀 Анатомия":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleSubjectSelectionAsync(chatId, text, cancellationToken);
+                    break;
+
+                case "⬅️ Бозгашт":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await _client.SendMessage(chatId, "Бозгашт ба менюи асосӣ", 
+                        replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+                        cancellationToken: cancellationToken);
+                    break;
+
+                case "👨‍💼 Админ":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleAdminCommandAsync(chatId, cancellationToken);
+                    break;
+
+                case "📢 Фиристодани паём":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    if (await IsUserAdminAsync(chatId, cancellationToken))
+                    {
+                        _pendingBroadcast[chatId] = true;
+                        var cancelKeyboard = new ReplyKeyboardMarkup(new[] { new KeyboardButton("❌ Бекор кардан") }) { ResizeKeyboard = true };
+                        await _client.SendMessage(chatId, "📢 Лутфан, паёмеро, ки ба ҳамаи корбарон фиристода мешавад, ворид кунед:", 
+                            replyMarkup: cancelKeyboard, 
+                            cancellationToken: cancellationToken);
+                    }
+                    else
+                    {
+                        await _client.SendMessage(chatId, "❌ Танҳо админҳо метавонанд паём фиристанд!", 
+                            cancellationToken: cancellationToken);
+                    }
+                    break;
+
+                case "💬 Тамос бо админ":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    var adminButton = new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithUrl("💬 Тамос бо админ", "https://t.me/iamnoseh") }
+                    });
+                    await _client.SendMessage(
+                        chatId,
+                        "Барои фиристодани савол ё дархост ба админ, ба ин суроға муроҷиат кунед:",
+                        replyMarkup: adminButton,
+                        cancellationToken: cancellationToken
+                    );
+                    break;
+
+                case "👥 Даъвати дӯстон":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleInviteFriendsAsync(chatId, cancellationToken);
+                    break;
+
+                case "🎮 Мусобиқа":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleStartDuelAsync(chatId, cancellationToken);
+                    break;
+
+                case "📊 Омор":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleStatisticsCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
+                    break;
+
+                case "🏆 Беҳтаринҳо":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleTopCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
+                    break;
+
+                case "👤 Профил":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await HandleProfileCommandAsync(chatId, scope.ServiceProvider, cancellationToken);
+                    break;
+
+                case "✏️ Иваз кардани ном":
+                    if (!isRegistered)
+                    {
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    _pendingNameChange[chatId] = true;
+                    await _client.SendMessage(chatId, "Лутфан, номи нави худро ворид кунед:", 
+                        cancellationToken: cancellationToken);
+                    break;
+
+                default:
+                    if (!isRegistered)
+                    {
+                        Console.WriteLine($"[REGISTRATION] Unregistered user {chatId} sent unknown command: {text}");
+                        await SendRegistrationRequestAsync(chatId, cancellationToken);
+                        return;
+                    }
+                    await _client.SendMessage(chatId, "Фармони нодуруст!", 
+                        cancellationToken: cancellationToken);
+                    break;
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex.Message.Contains("chat not found") || 
+                                 ex.Message.Contains("user not found") || 
+                                 ex.Message.Contains("bot was blocked"))
         {
-            Console.WriteLine($"Хатогӣ ҳангоми сабти корбар: {ex.Message}");
-            await _client.SendMessage(chatId, "Хатогӣ ҳангоми сабти маълумот рух дод. Лутфан, баъдтар дубора кӯшиш кунед.", cancellationToken: cancellationToken);
-        }
-        finally
-        {
-            _pendingRegistrations.Remove(chatId);
+            // If we can't send messages to the user, they are probably invalid
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+            var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+            
+            if (user != null)
+            {
+                user.IsLeft = true;
+                await dbContext.SaveChangesAsync(cancellationToken);
+                
+                // Remove user after marking them as left
+                dbContext.Users.Remove(user);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            return;
         }
     }
+    else if (update.Type == UpdateType.CallbackQuery && update.CallbackQuery != null)
+    {
+        var callbackQuery = update.CallbackQuery;
+        if (callbackQuery == null) return;
+
+        // Immediately answer the callback query to prevent timeout
+        await _client.AnswerCallbackQueryAsync(callbackQuery.Id, cancellationToken: cancellationToken);
+
+        var chatId = callbackQuery.Message.Chat.Id;
+
+        // Now call the dedicated handler for all other callback query logic
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
+            var responseService = scope.ServiceProvider.GetRequiredService<IResponseService>();
+            var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
+            await HandleCallbackQueryAsync(callbackQuery, questionService, responseService, subjectService, cancellationToken);
+        }
+    }
+}
+
+private async Task<bool> IsUserRegisteredAsync(long chatId, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+{
+    var dbContext = serviceProvider.GetRequiredService<DataContext>();
+    return await dbContext.Users.AnyAsync(u => u.ChatId == chatId, cancellationToken);
+}
+
+private async Task SendRegistrationRequestAsync(long chatId, CancellationToken cancellationToken)
+{
+    Console.WriteLine($"[REGISTRATION] Sending registration request to user {chatId}");
+    var requestContactButton = new KeyboardButton("Рақами телефон") { RequestContact = true };
+    var keyboard = new ReplyKeyboardMarkup(new[] { new[] { requestContactButton } }) { ResizeKeyboard = true, OneTimeKeyboard = true };
+    await _client.SendMessage(chatId, "Барои сабти ном тугмаи зеринро пахш кунед ва рақами телефони худро фиристед!", 
+        replyMarkup: keyboard, 
+        cancellationToken: cancellationToken);
+}
+
+private async Task HandleContactRegistrationAsync(Message message, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+{
+    var chatId = message.Chat.Id;
+    var contact = message.Contact;
+    var autoUsername = !string.IsNullOrWhiteSpace(message.Chat.Username) ? message.Chat.Username : message.Chat.FirstName;
+
+    Console.WriteLine($"[REGISTRATION] Contact received from user {chatId}, Phone: {contact?.PhoneNumber}, Username: {autoUsername}");
+
+    if (!_pendingRegistrations.ContainsKey(chatId))
+    {
+        Console.WriteLine($"[REGISTRATION] Starting new registration for user {chatId}");
+        _pendingRegistrations[chatId] = new RegistrationInfo { Contact = contact, AutoUsername = autoUsername, IsNameReceived = false, IsCityReceived = false };
+    }
+    else
+    {
+        Console.WriteLine($"[REGISTRATION] Updating contact for user {chatId}");
+        _pendingRegistrations[chatId].Contact = contact;
+    }
+
+    await _client.SendMessage(chatId, "Ташаккур! Акнун номатонро ворид кунед.", 
+        replyMarkup: new ReplyKeyboardRemove(), 
+        cancellationToken: cancellationToken);
+}
+
+private async Task HandleNameRegistrationAsync(long chatId, string name, CancellationToken cancellationToken)
+{
+    if (!_pendingRegistrations.ContainsKey(chatId))
+    {
+        Console.WriteLine($"[REGISTRATION] ERROR: User {chatId} not found in pending registrations");
+        await _client.SendMessage(chatId, "Илтимос, аввал рақами телефони худро фиристед!", 
+            cancellationToken: cancellationToken);
+        await SendRegistrationRequestAsync(chatId, cancellationToken);
+        return;
+    }
+
+    var regInfo = _pendingRegistrations[chatId];
+    regInfo.Name = name;
+    regInfo.IsNameReceived = true;
+    Console.WriteLine($"[REGISTRATION] Name saved for user {chatId}, asking for city");
+    await _client.SendMessage(chatId, "Лутфан, шаҳратонро ворид кунед.", 
+        replyMarkup: new ReplyKeyboardRemove(), 
+        cancellationToken: cancellationToken);
+}
+
+private async Task HandleCityRegistrationAsync(long chatId, string city, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+{
+    if (!_pendingRegistrations.ContainsKey(chatId))
+    {
+        Console.WriteLine($"[REGISTRATION] ERROR: User {chatId} not found in pending registrations");
+        await _client.SendMessage(chatId, "Илтимос, аввал рақами телефони худро фиристед!", 
+            cancellationToken: cancellationToken);
+        await SendRegistrationRequestAsync(chatId, cancellationToken);
+        return;
+    }
+
+    var regInfo = _pendingRegistrations[chatId];
+    regInfo.City = city;
+    regInfo.IsCityReceived = true;
+
+    Console.WriteLine($"[REGISTRATION] Completing registration for user {chatId} - Name: {regInfo.Name}, City: {regInfo.City}, Phone: {regInfo.Contact?.PhoneNumber}");
+
+    try
+    {
+        var dbContext = serviceProvider.GetRequiredService<DataContext>();
+        var user = new User 
+        { 
+            ChatId = chatId, 
+            Username = regInfo.AutoUsername, 
+            Name = regInfo.Name, 
+            PhoneNumber = regInfo.Contact.PhoneNumber, 
+            City = regInfo.City, 
+            Score = 0 
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        Console.WriteLine($"[REGISTRATION] User {chatId} successfully saved to database");
+
+        var invitation = await dbContext.Invitations.FirstOrDefaultAsync(i => i.InviteeChatId == chatId && i.Status == "pending", cancellationToken);
+        if (invitation != null)
+        {
+            Console.WriteLine($"[REGISTRATION] Found pending invitation for user {chatId} from {invitation.InviterChatId}");
+            invitation.Status = "accepted";
+            invitation.AcceptedAt = DateTime.UtcNow;
+            var inviter = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == invitation.InviterChatId, cancellationToken);
+            if (inviter != null)
+            {
+                inviter.Score += 5;
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await _client.SendMessage(inviter.ChatId, "🎉 Дӯсти шумо бо пайванди даъват сабти ном шуд! Шумо 5 бал гирифтед!", 
+                    cancellationToken: cancellationToken);
+                Console.WriteLine($"[REGISTRATION] Inviter {invitation.InviterChatId} received 5 bonus points");
+            }
+        }
+
+        await _client.SendMessage(chatId, "Сабти номи шумо бо муваффақият анҷом ёфт!\nБарои оғози тест тугмаи 'Оғози тест'-ро пахш кунед!", 
+            replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), 
+            cancellationToken: cancellationToken);
+        Console.WriteLine($"[REGISTRATION] Registration completed successfully for user {chatId}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[REGISTRATION] ERROR during registration for user {chatId}: {ex.Message}");
+        await _client.SendMessage(chatId, "Хатогӣ ҳангоми сабти маълумот рух дод. Лутфан, баъдтар дубора кӯшиш кунед.", 
+            cancellationToken: cancellationToken);
+    }
+    finally
+    {
+        _pendingRegistrations.Remove(chatId);
+        Console.WriteLine($"[REGISTRATION] Removed user {chatId} from pending registrations");
+    }
+}
 
     private async Task<IReplyMarkup> GetMainButtonsAsync(long chatId, CancellationToken cancellationToken)
     {
         var isAdmin = await IsUserAdminAsync(chatId, cancellationToken);
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+        var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
         var buttons = new List<List<KeyboardButton>>
         {
             new() { new KeyboardButton("📚 Интихоби фан"), new KeyboardButton("🎯 Оғози тест") },
@@ -577,7 +732,11 @@ public class TelegramBotHostedService : IHostedService
             new() { new KeyboardButton("🎮 Мусобиқа"), new KeyboardButton("💬 Тамос бо админ") },
             new() { new KeyboardButton("👥 Даъвати дӯстон"), new KeyboardButton("ℹ️ Кӯмак") }
         };
-        if (isAdmin) 
+        if (user != null && !user.HasChangedName)
+        {
+            buttons[1].Add(new KeyboardButton("✏️ Иваз кардани ном"));
+        }
+        if (isAdmin)
         {
             buttons.Add(new() { new KeyboardButton("📊 Омор") });
             buttons.Add(new() { new KeyboardButton("👨‍💼 Админ") });
@@ -764,28 +923,74 @@ public class TelegramBotHostedService : IHostedService
     private async Task HandleCallbackQueryAsync(CallbackQuery callbackQuery, IQuestionService questionService, IResponseService responseService, ISubjectService subjectService, CancellationToken cancellationToken)
     {
         var chatId = callbackQuery.Message.Chat.Id;
+        var data = callbackQuery.Data; // Get data once
 
-        if (callbackQuery.Data == "check_subscription")
+        if (data == "check_subscription")
         {
-            if (await IsUserChannelMemberAsync(chatId, cancellationToken) != UserCheckResult.Success)
-            {
-                await _client.AnswerCallbackQuery(callbackQuery.Id, "✅ Шумо обунаи каналро қабул кардед!", cancellationToken: cancellationToken);
-                await _client.SendMessage(chatId, "Хуш омадед! Барои оғози тест тугмаи 'Оғози тест'-ро пахш кунед.", replyMarkup: await GetMainButtonsAsync(chatId, cancellationToken), cancellationToken: cancellationToken);
-            }
-            else
-            {
-                await _client.AnswerCallbackQuery(callbackQuery.Id, "❌ Шумо ҳанӯз обунаи каналро қабул накардаед!", showAlert: true, cancellationToken: cancellationToken);
-            }
+            await CheckChannelSubscriptionAsync(chatId, cancellationToken);
             return;
+        }
+
+        // Handle duel invites and other duel-specific callbacks
+        if (data?.StartsWith("duel_") == true)
+        {
+            var parts = data.Split('_');
+            if (parts.Length >= 3)
+            {
+                var action = parts[1];
+                var inviterChatId = long.Parse(parts[2]);
+                var subjectId = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+
+                using var duelScope = _scopeFactory.CreateScope();
+                var dbContext = duelScope.ServiceProvider.GetRequiredService<DataContext>();
+                if (action == "accept")
+                {
+                    var subject = await dbContext.Subjects
+                        .Include(s => s.Questions)
+                        .FirstOrDefaultAsync(s => s.Id == subjectId, cancellationToken);
+                    if (subject == null)
+                    {
+                        await _client.SendMessage(chatId, "❌ Хатогӣ: Фан ёфт нашуд!", cancellationToken: cancellationToken);
+                        return;
+                    }
+
+                    var game = new DuelGame
+                    {
+                        Player1ChatId = inviterChatId,
+                        Player2ChatId = chatId,
+                        SubjectId = subjectId,
+                        Subject = subject,
+                        IsFinished = false,
+                        CurrentRound = 1,
+                        Player1Score = 0,
+                        Player2Score = 0,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    dbContext.DuelGames.Add(game);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+
+                    _activeGames[game.Id] = game;
+
+                    await HandleDuelGameAsync(game, cancellationToken);
+
+                    await _client.SendMessage(inviterChatId, "🎮 Бозингар даъвати шуморо қабул кард! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
+                    await _client.SendMessage(chatId, "🎮 Шумо даъватро қабул кардед! Бозӣ оғоз шуд!", cancellationToken: cancellationToken);
+                }
+                else if (action == "reject")
+                {
+                    await _client.SendMessage(inviterChatId, "❌ Бозингар даъвати шуморо рад кард.", cancellationToken: cancellationToken);
+                }
+                return; // Return after handling duel specific callbacks
+            }
         }
 
         if (!_activeQuestions.TryGetValue(chatId, out var questionInfo) || questionInfo.IsAnswered)
         {
-            await _client.AnswerCallbackQuery(callbackQuery.Id, "⚠️ Вақти ҷавоб додан гузашт!", showAlert: true, cancellationToken: cancellationToken);
+            // Callback was already answered by HandleUpdateAsync, just return
             return;
         }
 
-        var callbackData = callbackQuery.Data?.Split('_');
+        var callbackData = data?.Split('_'); // Use the 'data' variable
         if (callbackData == null || callbackData.Length < 2 || !int.TryParse(callbackData[0], out int questionId))
             return;
 
@@ -860,8 +1065,6 @@ public class TelegramBotHostedService : IHostedService
                 await _client.SendMessage(chatId, resultText, parseMode: ParseMode.Html, replyMarkup: restartButton, cancellationToken: cancellationToken);
             }
         }
-
-        await _client.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
     }
 
     private InlineKeyboardMarkup UpdateButtonsMarkup(int questionId, string selectedOption, bool isCorrect, string correctAnswer, GetQuestionWithOptionsDTO question)
@@ -937,26 +1140,12 @@ public class TelegramBotHostedService : IHostedService
     {
         try
         {
-            // First check if user exists in our database
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-            var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
-            
-            if (user == null)
-            {
-                return UserCheckResult.NotMember;
-            }
-
             try
             {
                 // Try to get user info first
                 var userInfo = await _client.GetChatAsync(chatId, cancellationToken);
                 if (userInfo == null)
                 {
-                    user.IsLeft = true;
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                    dbContext.Users.Remove(user);
-                    await dbContext.SaveChangesAsync(cancellationToken);
                     Console.WriteLine($"Корбар {chatId} ёфт нашуд ё бастааст (UserInfo null)");
                     return UserCheckResult.InvalidUserOrBlocked;
                 }
@@ -964,7 +1153,7 @@ public class TelegramBotHostedService : IHostedService
                 // Try to send a chat action to verify user is accessible
                 await _client.SendChatAction(chatId, ChatAction.Typing, cancellationToken: cancellationToken);
 
-                // Try to get channel member info using a different approach
+                // Try to get channel member info
                 try
                 {
                     // First try to get channel info
@@ -983,9 +1172,15 @@ public class TelegramBotHostedService : IHostedService
 
                     if (isMember)
                     {
-                        // If user is a member, update their status in database
-                        user.IsLeft = false;
-                        await dbContext.SaveChangesAsync(cancellationToken);
+                        // If user is a member, update their status in database if they exist
+                        using var scope = _scopeFactory.CreateScope();
+                        var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+                        var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+                        if (user != null)
+                        {
+                            user.IsLeft = false;
+                            await dbContext.SaveChangesAsync(cancellationToken);
+                        }
                         Console.WriteLine($"Корбар {chatId} аъзои канал аст");
                         return UserCheckResult.Success;
                     }
@@ -1003,12 +1198,18 @@ public class TelegramBotHostedService : IHostedService
                     Console.WriteLine($"Матни пурраи хатогӣ: {ex}");
 
                     // If we get PARTICIPANT_ID_INVALID, the user is likely invalid or blocked.
-                    // Mark them as left and remove from database.
-                    user.IsLeft = true;
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                    dbContext.Users.Remove(user);
-                    await dbContext.SaveChangesAsync(cancellationToken);
-                    Console.WriteLine($"Корбар {chatId} ҳамчун ғайрифаъол қайд карда шуд ва нест карда шуд.");
+                    // Mark them as left and remove from database if they exist.
+                    using var scope = _scopeFactory.CreateScope();
+                    var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+                    var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+                    if (user != null)
+                    {
+                        user.IsLeft = true;
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        dbContext.Users.Remove(user);
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                        Console.WriteLine($"Корбар {chatId} ҳамчун ғайрифаъол қайд карда шуд ва нест карда шуд.");
+                    }
                     return UserCheckResult.InvalidUserOrBlocked;
                 }
             }
@@ -1020,11 +1221,17 @@ public class TelegramBotHostedService : IHostedService
                 Console.WriteLine($"Корбар ёфт нашуд ё ботро бастааст: {ex.Message}");
                 Console.WriteLine($"Навъи хатогӣ (internal): {ex.GetType().Name}");
                 Console.WriteLine($"Матни пурраи хатогӣ (internal): {ex}");
-                // If user is not found or has blocked the bot, mark them as left and remove from database
-                user.IsLeft = true;
-                await dbContext.SaveChangesAsync(cancellationToken);
-                dbContext.Users.Remove(user);
-                await dbContext.SaveChangesAsync(cancellationToken);
+                // If user is not found or has blocked the bot, mark them as left and remove from database if they exist
+                using var scope = _scopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
+                var user = await dbContext.Users.FirstOrDefaultAsync(u => u.ChatId == chatId, cancellationToken);
+                if (user != null)
+                {
+                    user.IsLeft = true;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    dbContext.Users.Remove(user);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
                 return UserCheckResult.InvalidUserOrBlocked;
             }
         }
@@ -1049,7 +1256,19 @@ public class TelegramBotHostedService : IHostedService
             switch (checkResult)
             {
                 case UserCheckResult.Success:
-                    return true;
+                    // User is subscribed, check if they need to register
+                    using (var scope = _scopeFactory.CreateScope())
+                    {
+                        var isRegistered =
+                            await IsUserRegisteredAsync(chatId, scope.ServiceProvider, cancellationToken);
+                        if (!isRegistered)
+                        {
+                            await SendRegistrationRequestAsync(chatId, cancellationToken);
+                            return false;
+                        }
+
+                        return true;
+                    }
 
                 case UserCheckResult.NotMember:
                 {
@@ -1563,7 +1782,7 @@ public class TelegramBotHostedService : IHostedService
             }            using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
             var inviteLink = $"https://t.me/{_botUsername}?start=duel_{chatId}_{currentSubject}";            await _client.SendMessage(chatId,
-                "👥 Дӯстонро ба мусобиқа даъват кунед!\n\n" +
+                "👥 Дӯстони худро ба мусобиқа даъват кунед!\n\n" +
                 $"{inviteLink}\n" +
                 "Дӯстатонро ба мусобиқа даъват кунед.\n\n" +
                 "ℹ️ Барои фиристодани линк ба дӯстон, онро нусхабардорӣ кунед ва ба чати онҳо фиристед.",
