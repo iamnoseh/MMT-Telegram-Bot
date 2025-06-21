@@ -391,7 +391,8 @@ public class TelegramBotHostedService : IHostedService
                         new[] { new KeyboardButton("📜 Таърих"), new KeyboardButton("🌍 География") },
                         new[] { new KeyboardButton("📚 Адабиёти тоҷик"), new KeyboardButton("⚛️ Физика") },
                         new[] { new KeyboardButton("🇷🇺 Забони русӣ"), new KeyboardButton("📐 Математика") },
-                        new[] { new KeyboardButton("🫀 Анатомия") },
+                        new[] { new KeyboardButton("🫀 Анатомия"), new KeyboardButton("⚖️ Ҳуқуқи инсон") },
+                        new[] { new KeyboardButton("🧬 Генетика") },
                         new[] { new KeyboardButton("⬅️ Бозгашт") }
                     })
                     {
@@ -413,6 +414,8 @@ public class TelegramBotHostedService : IHostedService
                 case "🇷🇺 Забони русӣ":
                 case "📐 Математика":
                 case "🫀 Анатомия":
+                case "⚖️ Ҳуқуқи инсон":
+                case "🧬 Генетика":
                     if (!isRegistered)
                     {
                         await SendRegistrationRequestAsync(chatId, cancellationToken);
@@ -770,6 +773,8 @@ private async Task HandleCityRegistrationAsync(long chatId, string city, IServic
             "🇷🇺 Забони русӣ" => 9,
             "📐 Математика" => 10,
             "🫀 Анатомия" => 11,
+            "⚖️ Ҳуқуқи инсон" => 12,
+            "🧬 Генетика" => 13,
             _ => 0
         };
         if (subjectId == 0) return;
@@ -1565,6 +1570,8 @@ private async Task HandleCityRegistrationAsync(long chatId, string city, IServic
                     "Забони русӣ" => "🇷🇺",
                     "Математика" => "📐",
                     "Анатомия" => "🫀",
+                    "Ҳуқуқи инсон" => "⚖️",
+                    "Генетика" => "🧬",
                     _ => "📚"
                 };
                 return $"• {emoji} {s.Name}: {count:N0} савол";

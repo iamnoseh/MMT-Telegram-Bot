@@ -66,7 +66,8 @@ void SeedSubjects(DataContext db)
         new Subject { Id = 9, Name = "Забони русӣ" },
         new Subject { Id = 10, Name = "Математика" },
         new Subject { Id = 11, Name = "Анатомия" },
-        new Subject {Id = 12,Name = "Генетика"}
+        new Subject { Id = 12, Name = "Ҳуқуқи инсон" },
+        new Subject { Id = 13, Name = "Генетика" }
     };
 
     foreach (var subject in subjects)
