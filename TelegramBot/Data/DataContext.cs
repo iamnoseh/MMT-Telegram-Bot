@@ -14,6 +14,8 @@ public class DataContext : DbContext
     public DbSet<Question2Admin> QuestionsToAdmin { get; set; }
     public DbSet<DuelGame> DuelGames { get; set; }
     public DbSet<UserReferral> UserReferrals { get; set; }
+    public DbSet<Book> Books { get; set; }
+    public DbSet<BookCategory> BookCategories { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,5 +36,17 @@ public class DataContext : DbContext
             .HasOne(ur => ur.Question)
             .WithMany(q => q.UserResponses)
             .HasForeignKey(ur => ur.QuestionId);
+
+        // Алоқаи Book ва BookCategory
+        modelBuilder.Entity<Book>()
+            .HasOne(b => b.Category)
+            .WithMany(c => c.Books)
+            .HasForeignKey(b => b.CategoryId);
+
+        // Алоқаи Book ва User
+        modelBuilder.Entity<Book>()
+            .HasOne(b => b.UploadedByUser)
+            .WithMany()
+            .HasForeignKey(b => b.UploadedByUserId);
     }
 }

@@ -10,6 +10,7 @@ using TelegramBot.Services.OptionServices;
 using TelegramBot.Services.QuestionService;
 using TelegramBot.Services.SubjectService;
 using TelegramBot.Services.UserResponceService;
+using TelegramBot.Services.BookService;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,8 +23,9 @@ builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<IOptionService, OptionService>();
 builder.Services.AddScoped<IResponseService, ResponseService>();
 builder.Services.AddScoped<ISubjectService, SubjectService>();
+builder.Services.AddScoped<IBookService, BookService>();
 
-// Register TelegramBotHelper as a hosted service
+// Register TelegramBotHostedService as a hosted service
 builder.Services.AddHostedService<TelegramBotHostedService>();
 
 var app = builder.Build();
@@ -76,6 +78,20 @@ void SeedSubjects(DataContext db)
         {
             db.Subjects.Add(subject);
         }
+    }
+
+    // Add default book category
+    var defaultCategory = new BookCategory 
+    { 
+        Id = 1, 
+        Name = "Умумӣ", 
+        Cluster = "General", 
+        Year = DateTime.Now.Year 
+    };
+    
+    if (!db.BookCategories.Any(c => c.Id == defaultCategory.Id))
+    {
+        db.BookCategories.Add(defaultCategory);
     }
 
     db.SaveChanges();
