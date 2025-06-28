@@ -75,7 +75,7 @@ public class TelegramBotHostedService : IHostedService
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
-        var token = "8005745055:AAGICchiW4ght5xeM3mIG_813jsdalR92DM"; // Tokeni haqiqii худро иваз кунед
+        var token = "8005745055:AAFcsd9NErg8lEz8Zo9XKCxWJXb98PEy9tc"; // Tokeni haqiqii худро иваз кунед
         _client = new TelegramBotClient(token);
         _channelId = configuration["TelegramChannel:ChannelId"] ??
                      throw new ArgumentNullException("ID-и канал ёфт нашуд!");
