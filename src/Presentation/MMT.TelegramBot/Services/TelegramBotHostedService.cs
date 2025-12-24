@@ -83,40 +83,140 @@ public class TelegramBotHostedService : BackgroundService
     
     private async Task HandleMessageAsync(Message message, IMediator mediator, CancellationToken ct)
     {
-        if (message.Text == null) return;
-        
         var chatId = message.Chat.Id;
-        var text = message.Text;
         
-        _logger.LogInformation("Message from {ChatId}: {Text}", chatId, text);
+        _logger.LogInformation("Message from {ChatId}: Text={Text}, HasContact={HasContact}", 
+            chatId, message.Text, message.Contact != null);
+        
+        if (message.Contact != null)
+        {
+            await HandleContactAsync(message, mediator, ct);
+            return;
+        }
+        
+        if (string.IsNullOrEmpty(message.Text)) return;
+        
+        var text = message.Text;
         
         if (text == "/start")
         {
-            var command = new Application.Features.Bot.Commands.HandleStart.HandleStartCommand
+            await HandleStartCommandAsync(chatId, message.From, mediator, ct);
+        }
+        else
+        {
+            await HandleTextMessageAsync(chatId, text, mediator, ct);
+        }
+    }
+    
+    private async Task HandleStartCommandAsync(long chatId, Telegram.Bot.Types.User? from, IMediator mediator, CancellationToken ct)
+    {
+        var command = new MMT.Application.Features.Bot.Commands.HandleStart.HandleStartCommand
+        {
+            ChatId = chatId,
+            Username = from?.Username,
+            FirstName = from?.FirstName
+        };
+        
+        var result = await mediator.Send(command, ct);
+        
+        if (result.ShouldRequestPhone)
+        {
+            var keyboard = new ReplyKeyboardMarkup(new[]
+            {
+                new KeyboardButton("📱 Фиристодани рақами телефон") { RequestContact = true }
+            })
+            {
+                ResizeKeyboard = true
+            };
+            
+            await _botClient.SendMessage(chatId, result.Message, replyMarkup: keyboard, cancellationToken: ct);
+        }
+        else
+        {
+            var mainKeyboard = GetMainMenuKeyboard();
+            await _botClient.SendMessage(chatId, result.Message, replyMarkup: mainKeyboard, cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleContactAsync(Message message, IMediator mediator, CancellationToken ct)
+    {
+        var command = new Application.Features.Bot.Commands.HandlePhoneRegistration.HandlePhoneRegistrationCommand
+        {
+            ChatId = message.Chat.Id,
+            PhoneNumber = message.Contact!.PhoneNumber!,
+            Username = message.From?.Username,
+            FirstName = message.From?.FirstName
+        };
+        
+        var result = await mediator.Send(command, ct);
+        
+        var keyboard = new ReplyKeyboardMarkup(new KeyboardButton("Main menu"))
+        {
+            ResizeKeyboard = true
+        };
+        
+        await _botClient.SendMessage(message.Chat.Id, result.Message, replyMarkup: keyboard, cancellationToken: ct);
+    }
+    
+    private async Task HandleTextMessageAsync(long chatId, string text, IMediator mediator, CancellationToken ct)
+    {
+        var session = await GetRegistrationSessionAsync(chatId, mediator, ct);
+        
+        if (session != null)
+        {
+            await HandleRegistrationFlowAsync(chatId, text, session, mediator, ct);
+            return;
+        }
+        
+        _logger.LogInformation("Normal message from registered user: {ChatId}, Text: {Text}", chatId, text);
+    }
+    
+    private async Task<MMT.Domain.Entities.RegistrationSession?> GetRegistrationSessionAsync(
+        long chatId, 
+        IMediator mediator, 
+        CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<MMT.Application.Common.Interfaces.Repositories.IUnitOfWork>();
+        return await unitOfWork.RegistrationSessions.GetActiveByChatIdAsync(chatId, ct);
+    }
+    
+    private async Task HandleRegistrationFlowAsync(
+        long chatId, 
+        string text,
+        MMT.Domain.Entities.RegistrationSession session,
+        IMediator mediator,
+        CancellationToken ct)
+    {
+        if (session.CurrentStep == MMT.Domain.Entities.RegistrationStep.Name)
+        {
+            var command = new MMT.Application.Features.Bot.Commands.HandleNameRegistration.HandleNameRegistrationCommand
             {
                 ChatId = chatId,
-                Username = message.From?.Username,
-                FirstName = message.From?.FirstName
+                Name = text
+            };
+            
+            var result = await mediator.Send(command, ct);
+            await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
+        }
+        else if (session.CurrentStep == MMT.Domain.Entities.RegistrationStep.City)
+        {
+            var command = new MMT.Application.Features.Bot.Commands.HandleCityRegistration.HandleCityRegistrationCommand
+            {
+                ChatId = chatId,
+                City = text
             };
             
             var result = await mediator.Send(command, ct);
             
-            if (result.ShouldRequestPhone)
-            {
-                var keyboard = new ReplyKeyboardMarkup(new[]
-                {
-                    new KeyboardButton("📱 Фиристодани рақами телефон") { RequestContact = true }
-                })
-                {
-                    ResizeKeyboard = true
-                };
-                
-                await _botClient.SendMessage(chatId, result.Message, replyMarkup: keyboard, cancellationToken: ct);
-            }
-            else
+            if (result.IsCompleted)
             {
                 var mainKeyboard = GetMainMenuKeyboard();
                 await _botClient.SendMessage(chatId, result.Message, replyMarkup: mainKeyboard, cancellationToken: ct);
+            }
+            else
+            {
+                await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
             }
         }
     }
