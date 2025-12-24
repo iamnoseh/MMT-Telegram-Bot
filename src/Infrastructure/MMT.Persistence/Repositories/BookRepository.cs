@@ -14,11 +14,26 @@ public class BookRepository(ApplicationDbContext context) : IBookRepository
             .FirstOrDefaultAsync(b => b.Id == id, ct);
     }
     
+    public async Task<List<Book>> GetAllAsync(CancellationToken ct = default)
+    {
+        return await context.Books
+            .Include(b => b.Category)
+            .Include(b => b.UploadedByUser)
+            .ToListAsync(ct);
+    }
+    
     public async Task<List<Book>> GetAllActiveAsync(CancellationToken ct = default)
     {
         return await context.Books
             .Include(b => b.Category)
             .Where(b => b.IsActive)
+            .ToListAsync(ct);
+    }
+    
+    public async Task<List<Book>> GetByCategoryIdAsync(int categoryId, CancellationToken ct = default)
+    {
+        return await context.Books
+            .Where(b => b.CategoryId == categoryId && b.IsActive)
             .ToListAsync(ct);
     }
     

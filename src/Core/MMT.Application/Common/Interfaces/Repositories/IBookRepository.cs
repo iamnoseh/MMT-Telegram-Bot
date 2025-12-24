@@ -4,10 +4,10 @@ namespace MMT.Application.Common.Interfaces.Repositories;
 
 public interface IBookRepository
 {
-    Task<Book?> GetByIdAsync(int id, CancellationToken ct = default);
-    Task<List<Book>> GetAllActiveAsync(CancellationToken ct = default);
-    Task<List<Book>> GetByCategoryAsync(int categoryId, CancellationToken ct = default);
-    Task AddAsync(Book book, CancellationToken ct = default);
+    Task<Book?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+    Task<List<Book>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task<List<Book>> GetByCategoryIdAsync(int categoryId, CancellationToken cancellationToken = default);
+    Task AddAsync(Book book, CancellationToken cancellationToken = default);
     void Update(Book book);
     void Delete(Book book);
 }
