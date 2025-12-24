@@ -13,8 +13,21 @@ using TelegramBot.Services.SubjectService;
 using TelegramBot.Services.UserResponceService;
 using TelegramBot.Services.BookService;
 using Serilog;
+using MMT.Application;
+using MMT.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .WriteTo.Console()
+    .WriteTo.File("logs/bot-.txt", rollingInterval: RollingInterval.Day)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
+builder.Services.AddApplication();
+builder.Services.AddPersistence(builder.Configuration);
 
 // Configure Serilog
 builder.Host.UseSerilog((context, configuration) =>

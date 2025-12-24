@@ -16,6 +16,11 @@ using TelegramBot.Services.UserResponceService;
 using User = TelegramBot.Domain.Entities.User;
 using TelegramBot.Services.BookService;
 using TelegramBot.Constants;
+using MediatR;
+using MMT.Application.Features.Users.Queries.GetUserByChatId;
+using MMT.Application.Features.Users.Commands.RegisterUser;
+using MMT.Application.Features.Tests.Commands.StartTestSession;
+using MMT.Application.Features.Tests.Commands.SubmitTestAnswer;
 
 
 namespace TelegramBot.Services;
