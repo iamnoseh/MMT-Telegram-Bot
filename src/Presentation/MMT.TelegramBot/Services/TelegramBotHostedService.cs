@@ -172,7 +172,12 @@ public class TelegramBotHostedService : BackgroundService
         
         _logger.LogInformation("No active session, checking other commands for {ChatId}: {Text}", chatId, text);
         
-  
+        if (text.StartsWith("/setadmin"))
+        {
+            await HandleSetAdminCommandAsync(chatId, text, mediator, ct);
+            return;
+        }
+        
         if (text == "🎯 Оғози тест")
         {
             await ShowSubjectSelectionAsync(chatId, mediator, ct);
@@ -191,6 +196,34 @@ public class TelegramBotHostedService : BackgroundService
         {
             _logger.LogInformation("Unhandled message from {ChatId}: {Text}", chatId, text);
         }
+    }
+    
+    private async Task HandleSetAdminCommandAsync(long chatId, string text, IMediator mediator, CancellationToken ct)
+    {
+        // Parse command: /setadmin @username OR /setadmin 992711116888
+        var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length < 2)
+        {
+            await _botClient.SendMessage(chatId, 
+                "Истифода: /setadmin @username ё /setadmin 992711116888", 
+                cancellationToken: ct);
+            return;
+        }
+        
+        var target = parts[1].TrimStart('@'); 
+        
+        var command = new MMT.Application.Features.Admin.Commands.SetAdmin.SetAdminCommand
+        {
+            AdminChatId = chatId,
+            TargetUsername = target.StartsWith("992") ? null : target,
+            TargetPhoneNumber = target.StartsWith("992") ? target : null,
+            MakeAdmin = true
+        };
+        
+        var result = await mediator.Send(command, ct);
+        
+        await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
     }
     
     private async Task ShowSubjectSelectionAsync(long chatId, IMediator mediator, CancellationToken ct)

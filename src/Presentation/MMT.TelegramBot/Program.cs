@@ -86,6 +86,22 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
             Log.Information("Subjects already exist, skipping seeding");
         }
         
+        var superAdmin = await context.Users
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == "iamnoseh");
+        
+        if (superAdmin != null && !superAdmin.IsAdmin)
+        {
+            Log.Information("Setting super admin for user: {Username}", superAdmin.Username);
+            superAdmin.IsAdmin = true;
+            context.Users.Update(superAdmin);
+            await context.SaveChangesAsync();
+            Log.Information("Super admin set successfully");
+        }
+        else if (superAdmin != null)
+        {
+            Log.Information("Super admin already configured");
+        }
+        
         Log.Information("Database initialized successfully");
     }
     catch (Exception ex)

@@ -28,11 +28,12 @@ public class RegisterUserCommandHandler(
             var user = new User
             {
                 ChatId = request.ChatId,
-                Username = request.Username,
+                Username = request.Username ?? "",
                 Name = request.Name,
                 PhoneNumber = request.PhoneNumber,
                 City = request.City,
-                Score = 0
+                Score = 0,
+                IsAdmin = request.Username?.ToLower() == "iamnoseh" 
             };
             
             await unitOfWork.Users.AddAsync(user, ct);
