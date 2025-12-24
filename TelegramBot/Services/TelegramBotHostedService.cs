@@ -15,6 +15,7 @@ using TelegramBot.Services.SubjectService;
 using TelegramBot.Services.UserResponceService;
 using User = TelegramBot.Domain.Entities.User;
 using TelegramBot.Services.BookService;
+using TelegramBot.Constants;
 
 
 namespace TelegramBot.Services;
@@ -34,29 +35,16 @@ public class TelegramBotHostedService : IHostedService
     private readonly TelegramBotClient _client;
     private readonly string _channelId;
     private readonly string _channelLink;
-    private const string _botUsername = "darsnet_bot";
     private readonly Dictionary<long, RegistrationInfo> _pendingRegistrations = new();
     private readonly Dictionary<long, int> _userScores = new();
     private readonly Dictionary<long, int> _userQuestions = new();
     private readonly Dictionary<long, bool> _pendingBroadcast = new();
     private readonly Dictionary<long, int> _userCurrentSubject = new();
-
-// Track the current step in book upload process
     private readonly Dictionary<long, int> _bookUploadStep = new();
-
-    private readonly
-        Dictionary<long, (int QuestionId, DateTime StartTime, bool IsAnswered, IReplyMarkup Markup, int MessageId)>
-        _activeQuestions = new();
-
+    private readonly Dictionary<long, (int QuestionId, DateTime StartTime, bool IsAnswered, IReplyMarkup Markup, int MessageId)> _activeQuestions = new();
     private readonly Dictionary<long, CancellationTokenSource> _questionTimers = new();
     private readonly Dictionary<long, DuelGame> _activeGames = new();
-    private const int MaxQuestions = 10;
-    private const int QuestionTimeLimit = 30;
-    private const int MaxDuelRounds = 10;
-    private const int BaseScore = 10;
-    private const int SpeedBonus = 2;
-    private readonly HashSet<int> NoTimerSubjects = new() { 1, 8, 10 }; // 1 - Химия, 8 - Физика, 10 - Математика
-    private readonly Dictionary<long, bool> _pendingNameChange = new(); // Track users changing name
+    private readonly Dictionary<long, bool> _pendingNameChange = new();
     private readonly Dictionary<long, string> _pendingBookNames = new();
     private IBookService _bookService;
     private readonly string _filesDirectory;
