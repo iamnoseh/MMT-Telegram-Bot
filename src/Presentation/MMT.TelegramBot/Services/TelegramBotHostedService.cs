@@ -108,9 +108,9 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
-    private async Task HandleStartCommandAsync(long chatId, Telegram.Bot.Types.User? from, IMediator mediator, CancellationToken ct)
+    private async Task HandleStartCommandAsync(long chatId, User? from, IMediator mediator, CancellationToken ct)
     {
-        var command = new MMT.Application.Features.Bot.Commands.HandleStart.HandleStartCommand
+        var command = new Application.Features.Bot.Commands.HandleStart.HandleStartCommand
         {
             ChatId = chatId,
             Username = from?.Username,
@@ -143,7 +143,7 @@ public class TelegramBotHostedService : BackgroundService
         var command = new Application.Features.Bot.Commands.HandlePhoneRegistration.HandlePhoneRegistrationCommand
         {
             ChatId = message.Chat.Id,
-            PhoneNumber = message.Contact!.PhoneNumber!,
+            PhoneNumber = message.Contact!.PhoneNumber,
             Username = message.From?.Username,
             FirstName = message.From?.FirstName
         };
@@ -164,33 +164,110 @@ public class TelegramBotHostedService : BackgroundService
         
         if (session != null)
         {
+            _logger.LogInformation("Active registration session found for {ChatId}, Step: {Step}", 
+                chatId, session.CurrentStep);
             await HandleRegistrationFlowAsync(chatId, text, session, mediator, ct);
             return;
         }
         
-        _logger.LogInformation("Normal message from registered user: {ChatId}, Text: {Text}", chatId, text);
+        _logger.LogInformation("No active session, checking other commands for {ChatId}: {Text}", chatId, text);
+        
+  
+        if (text == "🎯 Оғози тест")
+        {
+            await ShowSubjectSelectionAsync(chatId, mediator, ct);
+        }
+        else if (text.StartsWith("📚 "))
+        {
+            await HandleSubjectSelectionAsync(chatId, text, mediator, ct);
+        }
+        else if (text == "⬅️ Бозгашт")
+        {
+            var mainKeyboard = GetMainMenuKeyboard();
+            await _botClient.SendMessage(chatId, "Бозгашт ба менюи асосӣ", 
+                replyMarkup: mainKeyboard, cancellationToken: ct);
+        }
+        else
+        {
+            _logger.LogInformation("Unhandled message from {ChatId}: {Text}", chatId, text);
+        }
     }
     
-    private async Task<MMT.Domain.Entities.RegistrationSession?> GetRegistrationSessionAsync(
+    private async Task ShowSubjectSelectionAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        var query = new Application.Features.Subjects.Queries.GetAllSubjects.GetAllSubjectsQuery();
+        var subjects = await mediator.Send(query, ct);
+        
+        if (!subjects.Any())
+        {
+            await _botClient.SendMessage(chatId, 
+                "Дар айни замон фанҳо дастрас нестанд.", cancellationToken: ct);
+            return;
+        }
+        
+        var keyboard = new ReplyKeyboardMarkup(
+            subjects.Select(s => new KeyboardButton[] 
+            { 
+                new($"📚 {s.Name}") 
+            }).Concat(new[] { new KeyboardButton[] { "⬅️ Бозгашт" } })
+        )
+        {
+            ResizeKeyboard = true
+        };
+        
+        await _botClient.SendMessage(chatId, 
+            "Лутфан, фанро интихоб кунед:", 
+            replyMarkup: keyboard, 
+            cancellationToken: ct);
+    }
+    
+    private async Task HandleSubjectSelectionAsync(long chatId, string text, IMediator mediator, CancellationToken ct)
+    {
+        var subjectName = text.Replace("📚 ", "").Trim();
+        
+        var allSubjects = await mediator.Send(
+            new Application.Features.Subjects.Queries.GetAllSubjects.GetAllSubjectsQuery(), ct);
+        
+        var selected = allSubjects.FirstOrDefault(s => s.Name == subjectName);
+        if (selected == null)
+        {
+            await _botClient.SendMessage(chatId, "Фан ёфт нашуд!", cancellationToken: ct);
+            return;
+        }
+        
+        var command = new Application.Features.Bot.Commands.SelectSubject.SelectSubjectCommand
+        {
+            ChatId = chatId,
+            SubjectId = selected.Id
+        };
+        
+        var result = await mediator.Send(command, ct);
+        
+        var mainKeyboard = GetMainMenuKeyboard();
+        await _botClient.SendMessage(chatId, result.Message, 
+            replyMarkup: mainKeyboard, cancellationToken: ct);
+    }
+    
+    private async Task<Domain.Entities.RegistrationSession?> GetRegistrationSessionAsync(
         long chatId, 
         IMediator mediator, 
         CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
-        var unitOfWork = scope.ServiceProvider.GetRequiredService<MMT.Application.Common.Interfaces.Repositories.IUnitOfWork>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
         return await unitOfWork.RegistrationSessions.GetActiveByChatIdAsync(chatId, ct);
     }
     
     private async Task HandleRegistrationFlowAsync(
         long chatId, 
         string text,
-        MMT.Domain.Entities.RegistrationSession session,
+        Domain.Entities.RegistrationSession session,
         IMediator mediator,
         CancellationToken ct)
     {
-        if (session.CurrentStep == MMT.Domain.Entities.RegistrationStep.Name)
+        if (session.CurrentStep == Domain.Entities.RegistrationStep.Name)
         {
-            var command = new MMT.Application.Features.Bot.Commands.HandleNameRegistration.HandleNameRegistrationCommand
+            var command = new Application.Features.Bot.Commands.HandleNameRegistration.HandleNameRegistrationCommand
             {
                 ChatId = chatId,
                 Name = text
@@ -199,9 +276,9 @@ public class TelegramBotHostedService : BackgroundService
             var result = await mediator.Send(command, ct);
             await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
         }
-        else if (session.CurrentStep == MMT.Domain.Entities.RegistrationStep.City)
+        else if (session.CurrentStep == Domain.Entities.RegistrationStep.City)
         {
-            var command = new MMT.Application.Features.Bot.Commands.HandleCityRegistration.HandleCityRegistrationCommand
+            var command = new Application.Features.Bot.Commands.HandleCityRegistration.HandleCityRegistrationCommand
             {
                 ChatId = chatId,
                 City = text

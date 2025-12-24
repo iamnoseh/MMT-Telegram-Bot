@@ -34,6 +34,7 @@ public class HandlePhoneRegistrationCommandHandler(
         
         if (session == null)
         {
+            // NEW session - just Add, don't Update
             session = new RegistrationSession
             {
                 ChatId = request.ChatId,
@@ -43,15 +44,18 @@ public class HandlePhoneRegistrationCommandHandler(
             };
             
             await unitOfWork.RegistrationSessions.AddAsync(session, ct);
+            session.MoveToNextStep(); // Move to Name step
+            // DON'T call Update() on new entity!
         }
         else
         {
+            // EXISTING session - update fields
             session.PhoneNumber = request.PhoneNumber;
             session.Username = request.Username;
+            session.MoveToNextStep(); // Move to Name step
             unitOfWork.RegistrationSessions.Update(session);
         }
         
-        session.MoveToNextStep(); // Move to Name step
         await unitOfWork.SaveChangesAsync(ct);
         
         logger.LogInformation("Phone saved, requesting name: {ChatId}", request.ChatId);

@@ -29,12 +29,15 @@ public class HandleNameRegistrationCommandHandler(
             };
         }
         
+        logger.LogInformation("Current session step before update: {Step}", session.CurrentStep);
+        
         session.Name = request.Name;
         session.MoveToNextStep(); // Move to City step
         unitOfWork.RegistrationSessions.Update(session);
         await unitOfWork.SaveChangesAsync(ct);
         
-        logger.LogInformation("Name saved, requesting city: {ChatId}", request.ChatId);
+        logger.LogInformation("Name saved, new step: {Step}, requesting city: {ChatId}", 
+            session.CurrentStep, request.ChatId);
         
         return new HandleNameRegistrationResult
         {
