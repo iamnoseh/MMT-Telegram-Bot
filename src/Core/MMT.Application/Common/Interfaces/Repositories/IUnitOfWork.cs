@@ -7,6 +7,9 @@ public interface IUnitOfWork : IDisposable
     ISubjectRepository Subjects { get; }
     IBookRepository Books { get; }
     IInvitationRepository Invitations { get; }
+    IUserTestSessionRepository TestSessions { get; }
+    IRegistrationSessionRepository RegistrationSessions { get; }
+    IUserStateRepository UserStates { get; }
     
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task BeginTransactionAsync(CancellationToken ct = default);

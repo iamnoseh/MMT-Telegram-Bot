@@ -1008,9 +1008,9 @@ public class TelegramBotHostedService : IHostedService
             return;
         }
 
-        if (_userQuestions[chatId] >= MaxQuestions)
+        if (_userQuestions[chatId] >= BotConstants.MaxQuestions)
         {
-            string resultText = $"<b>📝 Тест ба охир расид!</b>\nХолҳои шумо: {_userScores[chatId]}/{MaxQuestions}.";
+            string resultText = $"<b>📝 Тест ба охир расид!</b>\nХолҳои шумо: {_userScores[chatId]}/{BotConstants.MaxQuestions}.";
             var restartButton =
                 new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("♻️ Аз нав оғоз кунед!", "restart"));
             await _client.SendMessage(chatId, resultText, parseMode: ParseMode.Html, replyMarkup: restartButton,
@@ -1036,9 +1036,9 @@ public class TelegramBotHostedService : IHostedService
                               $"C) {question.ThirdOption}\n" +
                               $"D) {question.FourthOption}";
 
-            if (!NoTimerSubjects.Contains(currentSubject))
+            if (!BotConstants.NoTimerSubjects.Contains(currentSubject))
             {
-                messageText += $"\n\n<i>⏱ Вақт: {QuestionTimeLimit} сония</i>";
+                messageText += $"\n\n<i>⏱ Вақт: {BotConstants.QuestionTimeLimit} сония</i>";
             }
 
             var sentMessage = await _client.SendMessage(chatId,
@@ -1048,7 +1048,7 @@ public class TelegramBotHostedService : IHostedService
                 cancellationToken: cancellationToken);
             _activeQuestions[chatId] = (question.QuestionId, DateTime.UtcNow, false, markup, sentMessage.MessageId);
 
-            if (!NoTimerSubjects.Contains(currentSubject))
+            if (!BotConstants.NoTimerSubjects.Contains(currentSubject))
             {
                 var cts = new CancellationTokenSource();
                 _questionTimers[chatId] = cts;
@@ -1073,7 +1073,7 @@ public class TelegramBotHostedService : IHostedService
                 var question = await questionService.GetQuestionById(questionInfo.QuestionId);
                 if (question == null) return;
 
-                int remainingTime = QuestionTimeLimit;
+                int remainingTime = BotConstants.QuestionTimeLimit;
                 while (remainingTime > 0 && !questionInfo.IsAnswered)
                 {
                     await Task.Delay(1000, cancellationToken);
@@ -1116,7 +1116,7 @@ public class TelegramBotHostedService : IHostedService
                     _activeQuestions[chatId] = (finalInfo.QuestionId, finalInfo.StartTime, true, finalInfo.Markup,
                         finalInfo.MessageId);
 
-                    if (_userQuestions[chatId] < MaxQuestions)
+                    if (_userQuestions[chatId] < BotConstants.MaxQuestions)
                     {
                         var subjectService = scope.ServiceProvider.GetRequiredService<ISubjectService>();
                         await HandleNewQuestionAsync(chatId, questionService, subjectService, cancellationToken);
@@ -1124,7 +1124,7 @@ public class TelegramBotHostedService : IHostedService
                     else
                     {
                         string resultText =
-                            $"<b>📝 Тест ба охир расид!</b>\nХолҳои шумо: {_userScores[chatId]}/{MaxQuestions}.";
+                            $"<b>📝 Тест ба охир расид!</b>\nХолҳои шумо: {_userScores[chatId]}/{BotConstants.MaxQuestions}.";
                         var restartButton =
                             new InlineKeyboardMarkup(
                                 InlineKeyboardButton.WithCallbackData("♻️ Аз нав оғоз кунед!", "restart"));
@@ -1247,7 +1247,7 @@ public class TelegramBotHostedService : IHostedService
         if (activeGame != null)
         {
             var elapsedSeconds = (DateTime.UtcNow - questionInfo.StartTime).TotalSeconds;
-            var timeBonus = Math.Max(0, 1 - (elapsedSeconds / QuestionTimeLimit));
+            var timeBonus = Math.Max(0, 1 - (elapsedSeconds / BotConstants.QuestionTimeLimit));
 
             _activeQuestions[chatId] = (questionId, questionInfo.StartTime, true, questionInfo.Markup,
                 questionInfo.MessageId);
@@ -1291,14 +1291,14 @@ public class TelegramBotHostedService : IHostedService
             };
             await responseService.SaveUserResponse(userResponse);
 
-            if (_userQuestions[chatId] < MaxQuestions)
+            if (_userQuestions[chatId] < BotConstants.MaxQuestions)
             {
                 await HandleNewQuestionAsync(chatId, questionService, subjectService, cancellationToken);
             }
             else
             {
                 string resultText =
-                    $"<b>📝 Тест ба охир расид!</b>\nХолҳои шумо: {_userScores[chatId]}/{MaxQuestions}.";
+                    $"<b>📝 Тест ба охир расид!</b>\nХолҳои шумо: {_userScores[chatId]}/{BotConstants.MaxQuestions}.";
                 var restartButton =
                     new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("♻️ Аз нав оғоз кунед!", "restart"));
                 await _client.SendMessage(chatId, resultText, parseMode: ParseMode.Html, replyMarkup: restartButton,
@@ -2081,11 +2081,11 @@ public class TelegramBotHostedService : IHostedService
     {
         try
         {
-            var botInviteLink = $"https://t.me/{_botUsername}?start=ref_{chatId}";
+            var botInviteLink = $"https://t.me/{BotConstants.BotUsername}?start=ref_{chatId}";
             string duelInviteLink = "";
             if (_userCurrentSubject.TryGetValue(chatId, out int currentSubject))
             {
-                duelInviteLink = $"https://t.me/{_botUsername}?start=duel_{chatId}_{currentSubject}";
+                duelInviteLink = $"https://t.me/{BotConstants.BotUsername}?start=duel_{chatId}_{currentSubject}";
             }
 
             await _client.SendMessage(chatId,
@@ -2127,7 +2127,7 @@ public class TelegramBotHostedService : IHostedService
 
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-            var inviteLink = $"https://t.me/{_botUsername}?start=duel_{chatId}_{currentSubject}";
+            var inviteLink = $"https://t.me/{BotConstants.BotUsername}?start=duel_{chatId}_{currentSubject}";
             await _client.SendMessage(chatId,
                 "👥 Дӯстони худро ба мусобиқа даъват кунед!\n\n" +
                 $"{inviteLink}\n" +
@@ -2180,7 +2180,7 @@ public class TelegramBotHostedService : IHostedService
     {
         try
         {
-            if (game.CurrentRound > MaxDuelRounds)
+            if (game.CurrentRound > BotConstants.MaxDuelRounds)
             {
                 await NotifyDuelEnd(game, cancellationToken);
                 return;
@@ -2220,7 +2220,7 @@ public class TelegramBotHostedService : IHostedService
             }
 
             var markup = GetButtons(question.QuestionId);
-            var baseMessageText = $"<b>🎮 Мусобиқа</b> (Савол {game.CurrentRound}/{MaxDuelRounds})\n\n" +
+            var baseMessageText = $"<b>🎮 Мусобиқа</b> (Савол {game.CurrentRound}/{BotConstants.MaxDuelRounds})\n\n" +
                                   $"<b>📚 Фан:</b> {question.SubjectName}\n\n" +
                                   $"❓ {question.QuestionText}\n\n" +
                                   $"A) {question.FirstOption}\n" +
@@ -2229,7 +2229,7 @@ public class TelegramBotHostedService : IHostedService
                                   $"D) {question.FourthOption}\n\n";
 
             var scoreText = $"\n\nХолҳо: {game.Player1Score}:{game.Player2Score}";
-            var messageText = baseMessageText + $"⏱ Вақт: {QuestionTimeLimit} сония" + scoreText;
+            var messageText = baseMessageText + $"⏱ Вақт: {BotConstants.QuestionTimeLimit} сония" + scoreText;
 
             var msg1 = await _client.SendMessage(game.Player1ChatId, messageText + scoreText, parseMode: ParseMode.Html,
                 replyMarkup: markup, cancellationToken: cancellationToken);
@@ -2249,13 +2249,12 @@ public class TelegramBotHostedService : IHostedService
             {
                 try
                 {
-                    var remainingTime = QuestionTimeLimit;
+                    var remainingTime = BotConstants.QuestionTimeLimit;
                     while (remainingTime > 0)
                     {
-                        await Task.Delay(1000, linkedCts.Token); // Wait 1 second
+                        await Task.Delay(1000, linkedCts.Token); 
                         remainingTime--;
-
-                        // Update timer for both players if they haven't answered
+                        
                         if (!_activeQuestions[game.Player1ChatId].IsAnswered)
                         {
                             var msg1 = baseMessageText + $"⏱ Вақт: {remainingTime} сония" + scoreText;
@@ -2324,7 +2323,7 @@ public class TelegramBotHostedService : IHostedService
     private async Task HandleDuelAnswer(DuelGame game, long playerChatId, string selectedOption, bool isCorrect,
         double timeBonus, CancellationToken cancellationToken)
     {
-        var score = isCorrect ? BaseScore + (int)(timeBonus * SpeedBonus) : 0;
+        var score = isCorrect ? BotConstants.BaseScore + (int)(timeBonus * BotConstants.SpeedBonus) : 0;
 
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
