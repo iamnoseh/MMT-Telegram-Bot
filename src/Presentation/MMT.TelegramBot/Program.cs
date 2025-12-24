@@ -1,6 +1,7 @@
 using MMT.Application;
 using MMT.Persistence;
 using MMT.TelegramBot.Services;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -52,7 +53,38 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
         using var scope = services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<MMT.Persistence.Contexts.ApplicationDbContext>();
         
-        await context.Database.EnsureCreatedAsync();
+        Log.Information("Applying database migrations...");
+        await context.Database.MigrateAsync();
+        Log.Information("Database migrations applied successfully");
+        
+        if (!await context.Subjects.AnyAsync())
+        {
+            Log.Information("Seeding subjects...");
+            var subjects = new[]
+            {
+                new MMT.Domain.Entities.Subject { Name = "Химия" },
+                new MMT.Domain.Entities.Subject { Name = "Биология" },
+                new MMT.Domain.Entities.Subject { Name = "Забони тоҷикӣ" },
+                new MMT.Domain.Entities.Subject { Name = "English" },
+                new MMT.Domain.Entities.Subject { Name = "Таърих" },
+                new MMT.Domain.Entities.Subject { Name = "География" },
+                new MMT.Domain.Entities.Subject { Name = "Адабиёти тоҷик" },
+                new MMT.Domain.Entities.Subject { Name = "Физика" },
+                new MMT.Domain.Entities.Subject { Name = "Забони русӣ" },
+                new MMT.Domain.Entities.Subject { Name = "Математика" },
+                new MMT.Domain.Entities.Subject { Name = "Анатомия" },
+                new MMT.Domain.Entities.Subject { Name = "Ҳуқуқи инсон" },
+                new MMT.Domain.Entities.Subject { Name = "Генетика" }
+            };
+            
+            await context.Subjects.AddRangeAsync(subjects);
+            await context.SaveChangesAsync();
+            Log.Information("Successfully seeded {Count} subjects", subjects.Length);
+        }
+        else
+        {
+            Log.Information("Subjects already exist, skipping seeding");
+        }
         
         Log.Information("Database initialized successfully");
     }

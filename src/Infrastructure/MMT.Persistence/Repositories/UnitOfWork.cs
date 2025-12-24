@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+    using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using MMT.Application.Common.Interfaces.Repositories;
 using MMT.Persistence.Contexts;
@@ -18,6 +18,7 @@ public class UnitOfWork : IUnitOfWork
     public IUserTestSessionRepository TestSessions { get; }
     public IRegistrationSessionRepository RegistrationSessions { get; }
     public IUserStateRepository UserStates { get; }
+    public IUserResponseRepository UserResponses { get; }
     
     public UnitOfWork(ApplicationDbContext context)
     {
@@ -31,6 +32,7 @@ public class UnitOfWork : IUnitOfWork
         TestSessions = new UserTestSessionRepository(_context);
         RegistrationSessions = new RegistrationSessionRepository(_context);
         UserStates = new UserStateRepository(_context);
+        UserResponses = new UserResponseRepository(_context);
     }
     
     public async Task<int> SaveChangesAsync(CancellationToken ct = default)

@@ -10,6 +10,7 @@ public interface IUnitOfWork : IDisposable
     IUserTestSessionRepository TestSessions { get; }
     IRegistrationSessionRepository RegistrationSessions { get; }
     IUserStateRepository UserStates { get; }
+    IUserResponseRepository UserResponses { get; }
     
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task BeginTransactionAsync(CancellationToken ct = default);
