@@ -1,4 +1,4 @@
-namespace TelegramBot.Constants;
+namespace MMT.Domain.Constants;
 
 
 public static class Messages

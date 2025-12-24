@@ -2,8 +2,8 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using MMT.Application.Common.Interfaces.Repositories;
 using MMT.Application.Features.Tests.Commands.StartTestSession;
+using MMT.Domain.Constants;
 using MMT.Domain.Entities;
-using TelegramBot.Constants;
 
 namespace MMT.Application.Features.Tests.Commands.SubmitTestAnswer;
 

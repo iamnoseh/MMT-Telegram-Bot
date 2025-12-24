@@ -1,9 +1,8 @@
 using MediatR;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MMT.TelegramBot.Services;
 
@@ -55,7 +54,7 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
 
-    private Task HandleUpdateAsync(
+    private async Task HandleUpdateAsync(
         ITelegramBotClient botClient,
         Update update,
         CancellationToken cancellationToken)
@@ -65,18 +64,80 @@ public class TelegramBotHostedService : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
 
-            _logger.LogDebug("Received update {UpdateId}", update.Id);
+            _logger.LogDebug("Received update {UpdateId}, Type: {UpdateType}", update.Id, update.Type);
 
-            // TODO: Implement update handling with MediatR
-            // Example:
-            // await mediator.Send(new HandleTelegramUpdateCommand { Update = update }, cancellationToken);
+            if (update.Message != null)
+            {
+                await HandleMessageAsync(update.Message, mediator, cancellationToken);
+            }
+            else if (update.CallbackQuery != null)
+            {
+                await HandleCallbackQueryAsync(update.CallbackQuery, mediator, cancellationToken);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error handling update {UpdateId}", update.Id);
         }
-
-        return Task.CompletedTask;
+    }
+    
+    private async Task HandleMessageAsync(Message message, IMediator mediator, CancellationToken ct)
+    {
+        if (message.Text == null) return;
+        
+        var chatId = message.Chat.Id;
+        var text = message.Text;
+        
+        _logger.LogInformation("Message from {ChatId}: {Text}", chatId, text);
+        
+        if (text == "/start")
+        {
+            var command = new Application.Features.Bot.Commands.HandleStart.HandleStartCommand
+            {
+                ChatId = chatId,
+                Username = message.From?.Username,
+                FirstName = message.From?.FirstName
+            };
+            
+            var result = await mediator.Send(command, ct);
+            
+            if (result.ShouldRequestPhone)
+            {
+                var keyboard = new ReplyKeyboardMarkup(new[]
+                {
+                    new KeyboardButton("📱 Фиристодани рақами телефон") { RequestContact = true }
+                })
+                {
+                    ResizeKeyboard = true
+                };
+                
+                await _botClient.SendMessage(chatId, result.Message, replyMarkup: keyboard, cancellationToken: ct);
+            }
+            else
+            {
+                var mainKeyboard = GetMainMenuKeyboard();
+                await _botClient.SendMessage(chatId, result.Message, replyMarkup: mainKeyboard, cancellationToken: ct);
+            }
+        }
+    }
+    
+    private async Task HandleCallbackQueryAsync(CallbackQuery callbackQuery, IMediator mediator, CancellationToken ct)
+    {
+        _logger.LogInformation("Callback from {ChatId}: {Data}", callbackQuery.From.Id, callbackQuery.Data);
+        
+        await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: ct);
+    }
+    
+    private ReplyKeyboardMarkup GetMainMenuKeyboard()
+    {
+        return new ReplyKeyboardMarkup(new[]
+        {
+            new KeyboardButton[] { "🎯 Оғози тест", "📊 Натиҷаҳо" },
+            new KeyboardButton[] { "📚 Китобхона", "ℹ️ Маълумот" }
+        })
+        {
+            ResizeKeyboard = true
+        };
     }
 
     private Task HandleErrorAsync(
