@@ -37,6 +37,9 @@ static void ConfigureServices(IServiceCollection services, IConfiguration config
     services.AddApplication();
     services.AddPersistence(configuration);
     
+    services.Configure<MMT.TelegramBot.Configuration.BotConfiguration>(
+        configuration.GetSection(MMT.TelegramBot.Configuration.BotConfiguration.SectionName));
+    
     services.AddHostedService<TelegramBotHostedService>();
     
     services.AddHealthChecks();

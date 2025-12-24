@@ -1,4 +1,7 @@
 using MediatR;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -8,22 +11,24 @@ public class TelegramBotHostedService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TelegramBotHostedService> _logger;
-    private readonly IConfiguration _configuration;
+    private readonly Configuration.BotConfiguration _botConfig;
     private readonly ITelegramBotClient _botClient;
 
     public TelegramBotHostedService(
         IServiceScopeFactory scopeFactory,
         ILogger<TelegramBotHostedService> logger,
-        IConfiguration configuration)
+        IOptions<Configuration.BotConfiguration> botConfigOptions)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
-        _configuration = configuration;
+        _botConfig = botConfigOptions.Value;
 
-        var token = configuration["BotConfiguration:Token"]
-            ?? throw new InvalidOperationException("Bot token not configured");
+        if (string.IsNullOrEmpty(_botConfig.Token))
+            throw new InvalidOperationException("Bot token not configured in appsettings.json");
 
-        _botClient = new TelegramBotClient(token);
+        _botClient = new TelegramBotClient(_botConfig.Token);
+        
+        _logger.LogInformation("TelegramBot initialized with Channel: {ChannelId}", _botConfig.ChannelId);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
