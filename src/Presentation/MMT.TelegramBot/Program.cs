@@ -86,6 +86,7 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
             Log.Information("Subjects already exist, skipping seeding");
         }
         
+        // SEED SUPER ADMIN: Set IsAdmin=true for username 'iamnoseh'
         var superAdmin = await context.Users
             .FirstOrDefaultAsync(u => u.Username.ToLower() == "iamnoseh");
         
@@ -100,6 +101,19 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
         else if (superAdmin != null)
         {
             Log.Information("Super admin already configured");
+        }
+        
+        // SEED DEFAULT BOOK CATEGORY
+        if (!await context.BookCategories.AnyAsync())
+        {
+            Log.Information("Creating default book category...");
+            var defaultCategory = new MMT.Domain.Entities.BookCategory
+            {
+                Name = "Умумӣ",
+            };
+            await context.BookCategories.AddAsync(defaultCategory);
+            await context.SaveChangesAsync();
+            Log.Information("Default book category created");
         }
         
         Log.Information("Database initialized successfully");
