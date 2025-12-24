@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TelegramBot.Domain.Entities;
 using TelegramBot.Services;
 using TelegramBot.Services.OptionServices;
@@ -11,8 +12,22 @@ using TelegramBot.Services.QuestionService;
 using TelegramBot.Services.SubjectService;
 using TelegramBot.Services.UserResponceService;
 using TelegramBot.Services.BookService;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure Serilog
+builder.Host.UseSerilog((context, configuration) =>
+{
+    configuration
+        .ReadFrom.Configuration(context.Configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .WriteTo.File(
+            "logs/bot-.txt",
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 30);
+});
 
 // Register DbContext
 builder.Services.AddDbContext<DataContext>(options =>
@@ -34,14 +49,16 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<DataContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
         db.Database.Migrate();
         SeedSubjects(db);
+        logger.LogInformation("Database migration and seeding completed successfully");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Error during database migration or seeding: {ex.Message}");
+        logger.LogError(ex, "Error during database migration or seeding");
     }
 }
 

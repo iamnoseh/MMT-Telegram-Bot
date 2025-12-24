@@ -482,4 +482,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-*.appsettings.json
+
+# Sensitive configuration files - MMT Bot
+appsettings.Development.json
+appsettings.Production.json
+!appsettings.json
