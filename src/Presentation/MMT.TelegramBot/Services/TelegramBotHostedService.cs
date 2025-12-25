@@ -223,6 +223,18 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
+        if (text == "👤 Профил")
+        {
+            await HandleProfileAsync(chatId, mediator, ct);
+            return;
+        }
+        
+        if (text == "🏆 Беҳтаринҳо")
+        {
+            await HandleLeaderboardAsync(chatId, mediator, ct);
+            return;
+        }
+        
         // Book download command
         if (text.StartsWith("/book"))
         {
@@ -295,6 +307,91 @@ public class TelegramBotHostedService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error handling referral for {ChatId}", chatId);
+        }
+    }
+    
+    private async Task HandleProfileAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var result = await mediator.Send(new Application.Features.Users.Queries.GetUserProfile.GetUserProfileQuery
+            {
+                ChatId = chatId
+            }, ct);
+            
+            if (result == null)
+            {
+                await _botClient.SendMessage(chatId,
+                    "Профили шумо ёфт нашуд.",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var message = $"👤 **Профили шумо**\n\n" +
+                         $"📛 Ном: {result.Name}\n" +
+                         $"🏙 Шаҳр: {result.City}\n" +
+                         $"🏆 Холҳо: {result.Score}\n" +
+                         $"📊 Ранг: #{result.Rank}\n" +
+                         $"📱 Телефон: {result.PhoneNumber}";
+            
+            await _botClient.SendMessage(chatId,
+                message,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling profile for {ChatId}", chatId);
+            await _botClient.SendMessage(chatId,
+                "Хатогӣ рух дод.",
+                cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleLeaderboardAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var result = await mediator.Send(new Application.Features.Users.Queries.GetTopUsers.GetTopUsersQuery
+            {
+                Count = 10
+            }, ct);
+            
+            if (result.Count == 0)
+            {
+                await _botClient.SendMessage(chatId,
+                    "Ҷадвали беҳтаринҳо холӣ аст.",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var message = "🏆 **Беҳтаринҳо** (Топ-10)\n\n";
+            
+            for (int i = 0; i < result.Count; i++)
+            {
+                var user = result[i];
+                var medal = i switch
+                {
+                    0 => "🥇",
+                    1 => "🥈",
+                    2 => "🥉",
+                    _ => $"{i + 1}."
+                };
+                
+                message += $"{medal} **{user.Name}** - {user.Score} 🏆\n";
+            }
+            
+            await _botClient.SendMessage(chatId,
+                message,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling leaderboard for {ChatId}", chatId);
+            await _botClient.SendMessage(chatId,
+                "Хатогӣ рух дод.",
+                cancellationToken: ct);
         }
     }
     
@@ -561,6 +658,7 @@ public class TelegramBotHostedService : BackgroundService
         return new ReplyKeyboardMarkup(new[]
         {
             new KeyboardButton[] { "🎯 Оғози тест", "📊 Натиҷаҳо" },
+            new KeyboardButton[] { "👤 Профил", "🏆 Беҳтаринҳо" },
             new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" },
             new KeyboardButton[] { "📤 Боргузории китоб" } 
         })
