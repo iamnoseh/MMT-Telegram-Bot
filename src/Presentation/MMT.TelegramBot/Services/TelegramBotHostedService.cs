@@ -235,7 +235,18 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
-        // Book download command
+        if (text == "📊 Статистика")
+        {
+            await HandleStatisticsAsync(chatId, mediator, ct);
+            return;
+        }
+        
+        if (text == "📢 Паём фиристодан")
+        {
+            await HandleBroadcastPromptAsync(chatId, mediator, ct);
+            return;
+        }
+        
         if (text.StartsWith("/book"))
         {
             await HandleBookDownloadAsync(chatId, text, mediator, ct);
@@ -392,6 +403,63 @@ public class TelegramBotHostedService : BackgroundService
             await _botClient.SendMessage(chatId,
                 "Хатогӣ рух дод.",
                 cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleStatisticsAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var result = await mediator.Send(new Application.Features.Admin.Queries.GetStatistics.GetStatisticsQuery(), ct);
+            
+            var message = $"📊 **Статистика**\n\n" +
+                         $"👥 Ҳамагӣ корбарон: {result.TotalUsers}\n" +
+                         $"✅ Фаъол имрӯз: {result.ActiveUsersToday}\n" +
+                         $"📚 Ҳамагӣ саволҳо: {result.TotalQuestions}\n" +
+                         $"✏️ Тестҳои ҳалшуда: {result.TotalTestsSolved}\n" +
+                         $"✔️ Ҷавобҳои дуруст: {result.TotalCorrectAnswers}\n" +
+                         $"📖 Фанҳо: {result.TotalSubjects}";
+            
+            await _botClient.SendMessage(chatId,
+                message,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling statistics for {ChatId}", chatId);
+            await _botClient.SendMessage(chatId,
+                "Хатогӣ рух дод.",
+                cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleBroadcastPromptAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct) 
+                           ?? new Domain.Entities.UserState { ChatId = chatId };
+            
+            userState.IsPendingBroadcast = true;
+            
+            if (userState.Id == 0)
+                await unitOfWork.UserStates.AddAsync(userState, ct);
+            else
+                unitOfWork.UserStates.Update(userState);
+                
+            await unitOfWork.SaveChangesAsync(ct);
+            
+            await _botClient.SendMessage(chatId,
+                "📢 Лутфан паёмро барои ҳамаи корбарон нависед:",
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting broadcast mode for {ChatId}", chatId);
         }
     }
     
@@ -651,6 +719,41 @@ public class TelegramBotHostedService : BackgroundService
                 await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
             }
         }
+    }
+    
+    private async Task<ReplyKeyboardMarkup> GetMainMenuKeyboardAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        var buttons = new List<KeyboardButton[]>
+        {
+            new KeyboardButton[] { "🎯 Оғози тест", "📊 Натиҷаҳо" },
+            new KeyboardButton[] { "👤 Профил", "🏆 Беҳтаринҳо" },
+            new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" }
+        };
+        
+        // Check if user is admin
+        var user = await mediator.Send(new Application.Features.Users.Queries.GetUserProfile.GetUserProfileQuery
+        {
+            ChatId = chatId
+        }, ct);
+        
+        if (user != null)
+        {
+            // Get full user to check admin status
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var fullUser = await unitOfWork.Users.GetByChatIdAsync(chatId, ct);
+            
+            if (fullUser?.IsAdmin == true)
+            {
+                buttons.Add(new KeyboardButton[] { "📊 Статистика", "📢 Паём фиристодан" });
+                buttons.Add(new KeyboardButton[] { "📤 Боргузории китоб" });
+            }
+        }
+        
+        return new ReplyKeyboardMarkup(buttons)
+        {
+            ResizeKeyboard = true
+        };
     }
     
     private ReplyKeyboardMarkup GetMainMenuKeyboard()
