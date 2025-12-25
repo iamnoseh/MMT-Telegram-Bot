@@ -14,11 +14,14 @@ public class UserState : BaseEntity
     public bool IsPendingBroadcast { get; set; }
     public bool IsPendingNameChange { get; set; }
     
+    public string? PendingReferralCode { get; set; }
+    
     public BookUploadStep? BookUploadStep { get; set; }
     public string? BookTitle { get; set; }
     public string? BookDescription { get; set; }
     public int? BookYear { get; set; }
     public int? BookCategoryId { get; set; }
+    public string? BookCategory { get; set; }
     
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
     
@@ -37,6 +40,7 @@ public class UserState : BaseEntity
         BookDescription = null;
         BookYear = null;
         BookCategoryId = null;
+        BookCategory = null;
         UpdatedAt = DateTime.UtcNow;
     }
     
@@ -52,5 +56,6 @@ public enum BookUploadStep
     Title = 1,
     Description = 2,
     Year = 3,
-    File = 4
+    Category = 4,
+    File = 5
 }

@@ -13,4 +13,5 @@ public interface IUserRepository
     void Delete(User user);
     Task<bool> ExistsByChatIdAsync(long chatId, CancellationToken ct = default);
     Task<int> GetTotalCountAsync(CancellationToken ct = default);
+    Task<User?> GetByReferralCodeAsync(string referralCode, CancellationToken ct = default);
 }

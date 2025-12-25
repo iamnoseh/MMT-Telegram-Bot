@@ -8,7 +8,7 @@ public record UploadBookCommand : IRequest<UploadBookResult>
     public string Title { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public int PublicationYear { get; init; }
-    public int CategoryId { get; init; }
+    public string Category { get; init; } = "Умумӣ"; // Simple string
     public string FileName { get; init; } = string.Empty;
     public string FilePath { get; init; } = string.Empty;
 }

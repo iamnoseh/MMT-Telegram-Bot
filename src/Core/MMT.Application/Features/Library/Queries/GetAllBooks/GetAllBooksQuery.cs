@@ -4,7 +4,7 @@ namespace MMT.Application.Features.Library.Queries.GetAllBooks;
 
 public record GetAllBooksQuery : IRequest<List<BookDto>>
 {
-    public int? CategoryId { get; init; }
+    public string? CategoryName { get; init; }
 }
 
 public record BookDto

@@ -28,7 +28,7 @@ public class UploadBookCommandHandler(
             Title = request.Title,
             Description = request.Description,
             Year = request.PublicationYear,
-            CategoryId = request.CategoryId,
+            Category = request.Category,
             FileName = request.FileName,
             FilePath = request.FilePath,
             UploadedByUserId = admin.Id,

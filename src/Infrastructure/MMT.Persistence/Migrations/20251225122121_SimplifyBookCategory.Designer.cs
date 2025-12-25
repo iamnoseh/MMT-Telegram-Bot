@@ -3,6 +3,7 @@ using System;
 using MMT.Persistence.Contexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MMT.Persistence.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251225122121_SimplifyBookCategory")]
+    partial class SimplifyBookCategory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -407,15 +410,6 @@ namespace MMT.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
-                    b.Property<string>("ReferralCode")
-                        .HasColumnType("text");
-
-                    b.Property<int>("ReferralCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("ReferredByUserId")
-                        .HasColumnType("integer");
-
                     b.Property<int>("Score")
                         .HasColumnType("integer");
 
@@ -431,8 +425,6 @@ namespace MMT.Persistence.Migrations
 
                     b.HasIndex("ChatId")
                         .IsUnique();
-
-                    b.HasIndex("ReferredByUserId");
 
                     b.HasIndex("Score");
 
@@ -486,9 +478,6 @@ namespace MMT.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("BookCategory")
-                        .HasColumnType("text");
-
                     b.Property<int?>("BookCategoryId")
                         .HasColumnType("integer");
 
@@ -524,9 +513,6 @@ namespace MMT.Persistence.Migrations
 
                     b.Property<DateTime>("LastActivityAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PendingReferralCode")
-                        .HasColumnType("text");
 
                     b.Property<int?>("SelectedSubjectId")
                         .HasColumnType("integer");
@@ -646,15 +632,6 @@ namespace MMT.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Subject");
-                });
-
-            modelBuilder.Entity("MMT.Domain.Entities.User", b =>
-                {
-                    b.HasOne("MMT.Domain.Entities.User", "ReferredByUser")
-                        .WithMany()
-                        .HasForeignKey("ReferredByUserId");
-
-                    b.Navigation("ReferredByUser");
                 });
 
             modelBuilder.Entity("MMT.Domain.Entities.UserResponse", b =>

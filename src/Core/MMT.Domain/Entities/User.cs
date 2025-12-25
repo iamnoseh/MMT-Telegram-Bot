@@ -14,6 +14,11 @@ public class User : BaseEntity
     public bool IsAdmin { get; set; } = false;
     public bool HasChangedName { get; set; } = false;
     
+    public string? ReferralCode { get; set; }
+    public int? ReferredByUserId { get; set; }
+    public User? ReferredByUser { get; set; }
+    public int ReferralCount { get; set; } = 0;
+    
     public ICollection<UserResponse> UserResponses { get; set; } = new List<UserResponse>();
     public ICollection<Book> UploadedBooks { get; set; } = new List<Book>();
     

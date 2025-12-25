@@ -57,6 +57,36 @@ public class RegisterUserCommandHandler(
             logger.LogInformation("Корбар сабт шуд: ChatId={ChatId}, Name={Name}", 
                 request.ChatId, request.Name);
             
+            // Process referral if pending code exists
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(request.ChatId, ct);
+            if (userState?.PendingReferralCode != null)
+            {
+                try
+                {
+                    var referrer = await unitOfWork.Users.GetByReferralCodeAsync(userState.PendingReferralCode, ct);
+                    if (referrer != null && referrer.Id != user.Id)
+                    {
+                        user.ReferredByUserId = referrer.Id;
+                        referrer.ReferralCount++;
+                        
+                        unitOfWork.Users.Update(user);
+                        unitOfWork.Users.Update(referrer);
+                        await unitOfWork.SaveChangesAsync(ct);
+                        
+                        logger.LogInformation("Referral processed: User {NewUser} referred by {Referrer}",  
+                            user.ChatId, referrer.ChatId);
+                    }
+                    
+                    userState.PendingReferralCode = null;
+                    unitOfWork.UserStates.Update(userState);
+                    await unitOfWork.SaveChangesAsync(ct);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error processing referral for {ChatId}", request.ChatId);
+                }
+            }
+            
             return new RegisterUserResult
             {
                 Success = true,

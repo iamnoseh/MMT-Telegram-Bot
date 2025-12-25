@@ -10,14 +10,13 @@ public class Book : BaseEntity
     public string FilePath { get; set; } = string.Empty;
     public string FileExtension { get; set; } = string.Empty;
     public long FileSize { get; set; }
-    public int CategoryId { get; set; }
+    public string Category { get; set; } = "Умумӣ"; // Simple string instead of FK
     public int Year { get; set; }
     public int UploadedByUserId { get; set; }
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
     public bool IsActive { get; set; } = true;
     public int DownloadCount { get; set; } = 0;
     
-    public BookCategory Category { get; set; } = null!;
     public User UploadedByUser { get; set; } = null!;
     
     public void IncrementDownloadCount()

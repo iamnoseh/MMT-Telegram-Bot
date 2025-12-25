@@ -86,11 +86,10 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
             Log.Information("Subjects already exist, skipping seeding");
         }
         
-        // SEED SUPER ADMIN: Set IsAdmin=true for username 'iamnoseh'
         var superAdmin = await context.Users
             .FirstOrDefaultAsync(u => u.Username.ToLower() == "iamnoseh");
         
-        if (superAdmin != null && !superAdmin.IsAdmin)
+        if (superAdmin is { IsAdmin: false })
         {
             Log.Information("Setting super admin for user: {Username}", superAdmin.Username);
             superAdmin.IsAdmin = true;
@@ -103,7 +102,6 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
             Log.Information("Super admin already configured");
         }
         
-        // SEED DEFAULT BOOK CATEGORY
         if (!await context.BookCategories.AnyAsync())
         {
             Log.Information("Creating default book category...");

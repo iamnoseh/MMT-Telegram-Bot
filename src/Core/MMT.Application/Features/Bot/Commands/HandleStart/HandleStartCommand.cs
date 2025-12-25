@@ -7,6 +7,7 @@ public record HandleStartCommand : IRequest<HandleStartResult>
     public long ChatId { get; init; }
     public string? Username { get; init; }
     public string? FirstName { get; init; }
+    public string? ReferralCode { get; init; }
 }
 
 public record HandleStartResult

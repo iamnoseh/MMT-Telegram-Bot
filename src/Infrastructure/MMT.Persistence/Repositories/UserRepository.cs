@@ -54,4 +54,10 @@ public class UserRepository(ApplicationDbContext context) : IUserRepository
     {
         return await context.Users.CountAsync(ct);
     }
+    
+    public async Task<User?> GetByReferralCodeAsync(string referralCode, CancellationToken ct = default)
+    {
+        return await context.Users
+            .FirstOrDefaultAsync(u => u.ReferralCode == referralCode, ct);
+    }
 }

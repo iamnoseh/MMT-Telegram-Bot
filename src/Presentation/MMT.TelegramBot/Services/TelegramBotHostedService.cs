@@ -81,6 +81,25 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
+    private async Task HandleCallbackQueryAsync(CallbackQuery callbackQuery, IMediator mediator, CancellationToken ct)
+    {
+        var chatId = callbackQuery.Message!.Chat.Id;
+        var data = callbackQuery.Data;
+        
+        _logger.LogInformation("Callback from {ChatId}: {Data}", chatId, data);
+        
+        await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: ct);
+        
+        if (data?.StartsWith("download_book_") == true)
+        {
+            var bookIdStr = data.Replace("download_book_", "");
+            if (int.TryParse(bookIdStr, out var bookId))
+            {
+                await HandleBookDownloadAsync(chatId, $"/book{bookId}", mediator, ct);
+            }
+        }
+    }
+    
     private async Task HandleMessageAsync(Message message, IMediator mediator, CancellationToken ct)
     {
         var chatId = message.Chat.Id;
@@ -104,9 +123,9 @@ public class TelegramBotHostedService : BackgroundService
         
         var text = message.Text;
         
-        if (text == "/start")
+        if (text == "/start" || text.StartsWith("/start "))
         {
-            await HandleStartCommandAsync(chatId, message.From, mediator, ct);
+            await HandleStartCommandAsync(chatId, message.From, text, mediator, ct);
         }
         else
         {
@@ -114,13 +133,22 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
-    private async Task HandleStartCommandAsync(long chatId, User? from, IMediator mediator, CancellationToken ct)
+    private async Task HandleStartCommandAsync(long chatId, User? from, string text, IMediator mediator, CancellationToken ct)
     {
+        
+        string? referralCode = null;
+        if (text.StartsWith("/start ref_"))
+        {
+            referralCode = text.Replace("/start ref_", "").Trim();
+            _logger.LogInformation("Referral code detected: {Code} for user {ChatId}", referralCode, chatId);
+        }
+        
         var command = new Application.Features.Bot.Commands.HandleStart.HandleStartCommand
         {
             ChatId = chatId,
             Username = from?.Username,
-            FirstName = from?.FirstName
+            FirstName = from?.FirstName,
+            ReferralCode = referralCode
         };
         
         var result = await mediator.Send(command, ct);
@@ -189,6 +217,12 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
+        if (text == "👥 Даъвати дӯстон")
+        {
+            await HandleReferralAsync(chatId, mediator, ct);
+            return;
+        }
+        
         // Book download command
         if (text.StartsWith("/book"))
         {
@@ -229,6 +263,41 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
+    private async Task HandleReferralAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var result = await mediator.Send(new Application.Features.Referrals.Queries.GetReferralLink.GetReferralLinkQuery
+            {
+                ChatId = chatId,
+                BotUsername = _botConfig.Username
+            }, ct);
+            
+            if (string.IsNullOrEmpty(result.ReferralCode))
+            {
+                await _botClient.SendMessage(chatId,
+                    "Хатогӣ рух дод. Лутфан боз кӯшиш кунед.",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var message = $"🎁 **Даъвати дӯстон**\n\n" +
+                         $"Дӯстони худро даъват кунед!\n\n" +
+                         $"🔗 Линки шумо:\n`{result.ReferralLink}`\n\n" +
+                         $"👥 Дӯстони даъватшуда: **{result.TotalReferrals}**\n\n" +
+                         $"Линкро ба дӯстон фиристед!";
+            
+            await _botClient.SendMessage(chatId,
+                message,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling referral for {ChatId}", chatId);
+        }
+    }
+    
     private async Task HandleLibraryAsync(long chatId, IMediator mediator, CancellationToken ct)
     {
         var query = new Application.Features.Library.Queries.GetAllBooks.GetAllBooksQuery();
@@ -241,29 +310,41 @@ public class TelegramBotHostedService : BackgroundService
                 cancellationToken: ct);
             return;
         }
-        
-        var message = "📚 КИТОБХОНА\n\nКитобҳои мавҷуд:\n\n";
-        
         foreach (var book in books.Take(10))
         {
-            message += $"📖 {book.Title}\n";
-            message += $"   Тавсиф: {book.Description}\n";
-            message += $"   Сол: {book.PublicationYear}\n";
-            message += $"   Категория: {book.CategoryName}\n";
-            message += $"   Командa: /book{book.Id}\n\n";
+            var message = $"📖 {book.Title}\n" +
+                         $"📝 {book.Description}\n" +
+                         $"📅 Сол: {book.PublicationYear}\n" +
+                         $"🏷 Категория: {book.CategoryName}";
+            
+            var inlineKeyboard = new InlineKeyboardMarkup(
+                new[]
+                {
+                    new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData(
+                            "⬇️ Зеркашӣ", 
+                            $"download_book_{book.Id}")
+                    }
+                });
+            
+            await _botClient.SendMessage(chatId, message,
+                replyMarkup: inlineKeyboard,
+                cancellationToken: ct);
+            
+            await Task.Delay(100, ct);
         }
         
         if (books.Count > 10)
         {
-            message += $"\n...ва {books.Count - 10} китоби дигар";
+            await _botClient.SendMessage(chatId,
+                $"📚 Ва {books.Count - 10} китоби дигар мавҷуд аст.",
+                cancellationToken: ct);
         }
-        
-        await _botClient.SendMessage(chatId, message, cancellationToken: ct);
     }
     
     private async Task HandleBookDownloadAsync(long chatId, string text, IMediator mediator, CancellationToken ct)
     {
-        // Parse book ID from command: /book3 -> 3
         var bookIdStr = text.Replace("/book", "").Trim();
         
         if (!int.TryParse(bookIdStr, out var bookId))
@@ -274,7 +355,7 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
-        // Show loading
+       
         var loadingMsg = await _botClient.SendMessage(chatId,
             "⏬ Китоб тайёр мешавад...",
             cancellationToken: ct);
@@ -294,7 +375,6 @@ public class TelegramBotHostedService : BackgroundService
                 return;
             }
             
-            // Check if file exists
             var fullPath = Path.Combine(Directory.GetCurrentDirectory(), book.FilePath);
             
             if (!File.Exists(fullPath))
@@ -306,24 +386,22 @@ public class TelegramBotHostedService : BackgroundService
                 return;
             }
             
-            // Update progress
             await _botClient.EditMessageText(chatId, loadingMsg.MessageId,
                 "📤 Китоб фиристода мешавад...",
                 cancellationToken: ct);
             
-            // Send document
+            
             await using var fileStream = File.OpenRead(fullPath);
             await _botClient.SendDocument(chatId,
-                new Telegram.Bot.Types.InputFileStream(fileStream, book.FileName),
+                new InputFileStream(fileStream, book.FileName),
                 caption: $"📖 {book.Title}\n📝 {book.Description}\n📅 Сол: {book.Year}",
                 cancellationToken: ct);
             
-            // Increment download count
+        
             book.IncrementDownloadCount();
             unitOfWork.Books.Update(book);
             await unitOfWork.SaveChangesAsync(ct);
             
-            // Delete loading message
             await _botClient.DeleteMessage(chatId, loadingMsg.MessageId, ct);
             
             _logger.LogInformation("Book {BookId} ({Title}) downloaded by user {ChatId}", 
@@ -332,14 +410,17 @@ public class TelegramBotHostedService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error downloading book {BookId}", bookId);
-            
+
             try
             {
                 await _botClient.EditMessageText(chatId, loadingMsg.MessageId,
                     "❌ Хатогӣ ҳангоми фиристодани китоб. Лутфан баъдтар кӯшиш кунед.",
                     cancellationToken: ct);
             }
-            catch { }
+            catch
+            {
+                //
+            }
         }
     }
     
@@ -475,19 +556,12 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
-    private async Task HandleCallbackQueryAsync(CallbackQuery callbackQuery, IMediator mediator, CancellationToken ct)
-    {
-        _logger.LogInformation("Callback from {ChatId}: {Data}", callbackQuery.From.Id, callbackQuery.Data);
-        
-        await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: ct);
-    }
-    
     private ReplyKeyboardMarkup GetMainMenuKeyboard()
     {
         return new ReplyKeyboardMarkup(new[]
         {
             new KeyboardButton[] { "🎯 Оғози тест", "📊 Натиҷаҳо" },
-            new KeyboardButton[] { "📚 Китобхона", "ℹ️ Маълумот" },
+            new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" },
             new KeyboardButton[] { "📤 Боргузории китоб" } 
         })
         {
@@ -580,12 +654,12 @@ public class TelegramBotHostedService : BackgroundService
                 if (int.TryParse(text, out var year))
                 {
                     userState.BookYear = year;
-                    userState.BookUploadStep = Domain.Entities.BookUploadStep.File;
+                    userState.BookUploadStep = Domain.Entities.BookUploadStep.Category;
                     unitOfWork.UserStates.Update(userState);
                     await unitOfWork.SaveChangesAsync(ct);
                     
                     await _botClient.SendMessage(chatId, 
-                        "Китобро ҳамчун файл фиристед (PDF, EPUB, ғайра):",
+                        "Категорияи китобро ворид кунед (масалан: Биология, Адабиёт, Таърих):",
                         cancellationToken: ct);
                 }
                 else
@@ -594,6 +668,17 @@ public class TelegramBotHostedService : BackgroundService
                         "Рақами нодуруст. Лутфан соли нашрро бо рақам ворид кунед:",
                         cancellationToken: ct);
                 }
+                break;
+            
+            case Domain.Entities.BookUploadStep.Category:
+                userState.BookCategory = text;
+                userState.BookUploadStep = Domain.Entities.BookUploadStep.File;
+                unitOfWork.UserStates.Update(userState);
+                await unitOfWork.SaveChangesAsync(ct);
+                
+                await _botClient.SendMessage(chatId, 
+                    "Китобро ҳамчун файл фиристед (PDF, EPUB, ғайра):",
+                    cancellationToken: ct);
                 break;
         }
     }
@@ -633,16 +718,16 @@ public class TelegramBotHostedService : BackgroundService
                     Directory.CreateDirectory(directory);
                 }
                 
-                await using var fileStream = System.IO.File.Create(fullPath);
+                await using var fileStream = File.Create(fullPath);
                 await _botClient.DownloadFile(file.FilePath!, fileStream, ct);
                 
-                var command = new MMT.Application.Features.Library.Commands.UploadBook.UploadBookCommand
+                var command = new Application.Features.Library.Commands.UploadBook.UploadBookCommand
                 {
                     AdminChatId = chatId,
                     Title = userState.BookTitle ?? "Номаълум",
                     Description = userState.BookDescription ?? "",
                     PublicationYear = userState.BookYear ?? DateTime.UtcNow.Year,
-                    CategoryId = 1, 
+                    Category = userState.BookCategory ?? "Умумӣ",
                     FileName = fileName,
                     FilePath = filePath
                 };
@@ -668,8 +753,15 @@ public class TelegramBotHostedService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error uploading book file");
-                
-                try { await _botClient.DeleteMessage(chatId, loadingMessage.MessageId, ct); } catch { }
+
+                try
+                {
+                    await _botClient.DeleteMessage(chatId, loadingMessage.MessageId, ct);
+                }
+                catch
+                {
+                    //
+                }
                 
                 await _botClient.SendMessage(chatId,
                     "❌ Хатогӣ ҳангоми боргузорӣ рух дод. Лутфан дубора кӯшиш кунед.",

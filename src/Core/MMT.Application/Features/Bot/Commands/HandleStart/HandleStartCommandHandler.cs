@@ -32,6 +32,25 @@ public class HandleStartCommandHandler(
         
         logger.LogInformation("New user, requesting registration: {ChatId}", request.ChatId);
         
+        // Store referral code in UserState for processing after registration
+        if (!string.IsNullOrEmpty(request.ReferralCode))
+        {
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(request.ChatId, ct) 
+                           ?? new Domain.Entities.UserState { ChatId = request.ChatId };
+            
+            userState.PendingReferralCode = request.ReferralCode;
+            
+            if (userState.Id == 0)
+                await unitOfWork.UserStates.AddAsync(userState, ct);
+            else
+                unitOfWork.UserStates.Update(userState);
+                
+            await unitOfWork.SaveChangesAsync(ct);
+            
+            logger.LogInformation("Stored referral code {Code} for new user {ChatId}", 
+                request.ReferralCode, request.ChatId);
+        }
+        
         return new HandleStartResult
         {
             IsRegistered = false,
