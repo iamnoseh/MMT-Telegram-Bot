@@ -21,6 +21,16 @@ public class DuelRepository(ApplicationDbContext context) : IDuelRepository
                 .ThenInclude(a => a.Question)
             .FirstOrDefaultAsync(d => d.Id == id, ct);
     }
+    
+    public async Task<Duel?> GetByCodeAsync(string duelCode, CancellationToken ct = default)
+    {
+        return await context.Duels
+            .Include(d => d.Challenger)
+            .Include(d => d.Opponent)
+            .Include(d => d.Subject)
+            .Include(d => d.Answers)
+            .FirstOrDefaultAsync(d => d.DuelCode == duelCode, ct);
+    }
 
     public async Task<List<Duel>> GetActiveDuelsForUserAsync(int userId, CancellationToken ct = default)
     {

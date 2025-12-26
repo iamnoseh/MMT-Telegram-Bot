@@ -24,30 +24,15 @@ public class CreateDuelCommandHandler(
                 };
             }
 
-            var opponent = await unitOfWork.Users.GetByChatIdAsync(request.OpponentChatId, ct);
-            if (opponent == null)
-            {
-                return new CreateDuelResult
-                {
-                    Success = false,
-                    Message = "Ҳарифи интихобшуда дар система вуҷуд надорад."
-                };
-            }
-
-            if (challenger.Id == opponent.Id)
-            {
-                return new CreateDuelResult
-                {
-                    Success = false,
-                    Message = "Шумо наметавонед бо худатон дуэл созед!"
-                };
-            }
-
+            // Generate unique duel code
+            var duelCode = GenerateDuelCode();
+            
             var duel = new Duel
             {
                 ChallengerId = challenger.Id,
-                OpponentId = opponent.Id,
+                OpponentId = null, // Will be set when opponent accepts
                 SubjectId = request.SubjectId,
+                DuelCode = duelCode,
                 Status = DuelStatus.Pending,
                 CreatedAt = DateTime.UtcNow
             };
@@ -55,14 +40,14 @@ public class CreateDuelCommandHandler(
             await unitOfWork.Duels.AddAsync(duel, ct);
             await unitOfWork.SaveChangesAsync(ct);
 
-            logger.LogInformation("Duel created: {DuelId} between {Challenger} and {Opponent}",
-                duel.Id, challenger.Name, opponent.Name);
+            logger.LogInformation("Duel created with code: {DuelCode} by {Challenger}",
+                duelCode, challenger.Name);
 
             return new CreateDuelResult
             {
                 Success = true,
-                DuelId = duel.Id,
-                Message = $"Дуэл бо {opponent.Name} сохта шуд!"
+                DuelCode = duelCode,
+                Message = "Дуэл сохта шуд! Ссылкаро ба дӯстатон фиристед."
             };
         }
         catch (Exception ex)
@@ -74,5 +59,13 @@ public class CreateDuelCommandHandler(
                 Message = "Хатогӣ ҳангоми сохтани дуэл."
             };
         }
+    }
+    
+    private string GenerateDuelCode()
+    {
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var random = new Random();
+        return new string(Enumerable.Repeat(chars, 8)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
     }
 }
