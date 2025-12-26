@@ -174,7 +174,11 @@ public class TelegramBotHostedService : BackgroundService
         }
         else
         {
-            var mainKeyboard = GetMainMenuKeyboard();
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var user = await unitOfWork.Users.GetByChatIdAsync(chatId, ct);
+            
+            var mainKeyboard = GetMainMenuKeyboard(user);
             await _botClient.SendMessage(chatId, result.Message, replyMarkup: mainKeyboard, cancellationToken: ct);
             
             if (!string.IsNullOrEmpty(duelCode))
@@ -1244,15 +1248,27 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
-    private ReplyKeyboardMarkup GetMainMenuKeyboard()
+    private ReplyKeyboardMarkup GetMainMenuKeyboard(Domain.Entities.User? user = null)
     {
-        return new ReplyKeyboardMarkup([
-            ["📚 Интихоби фан", "🎯 Оғози тест"],
-            ["👤 Профил", "🏆 Беҳтаринҳо"],
-            ["⚔️ Дуэл", "📊 Натиҷаҳо"],
-            ["📚 Китобхона", "👥 Даъвати дӯстон"],
-            ["📤 Боргузории китоб"]
-        ])
+        var buttons = new List<KeyboardButton[]>
+        {
+            new KeyboardButton[] { "📚 Интихоби фан", "🎯 Оғози тест" },
+            new KeyboardButton[] { "👤 Профил", "🏆 Беҳтаринҳо" },
+            new KeyboardButton[] { "⚔️ Дуэл", "📊 Натиҷаҳо" },
+            new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" }
+        };
+        
+        if (user?.IsAdmin == true)
+        {
+            buttons.Add(new KeyboardButton[] { "📊 Статистика", "📢 Паём фиристодан" });
+            buttons.Add(new KeyboardButton[] { "📥 Дохил кардани саволҳо", "📤 Боргузории китоб" });
+        }
+        else
+        {
+            buttons.Add(new KeyboardButton[] { "📤 Боргузории китоб" });
+        }
+        
+        return new ReplyKeyboardMarkup(buttons)
         {
             ResizeKeyboard = true
         };
@@ -1498,7 +1514,7 @@ public class TelegramBotHostedService : BackgroundService
             }
             
             var user = await unitOfWork.Users.GetByChatIdAsync(chatId, ct);
-            var keyboard = GetMainMenuKeyboard();
+            var keyboard = GetMainMenuKeyboard(user);
             
             await _botClient.SendMessage(chatId,
                 "🏠 Менюи асосӣ",
