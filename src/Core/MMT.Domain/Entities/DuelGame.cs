@@ -39,6 +39,6 @@ public class DuelGame : BaseEntity
         
         if (Player1Score > Player2Score) return Player1ChatId;
         if (Player2Score > Player1Score) return Player2ChatId;
-        return null; // Draw
+        return null; 
     }
 }

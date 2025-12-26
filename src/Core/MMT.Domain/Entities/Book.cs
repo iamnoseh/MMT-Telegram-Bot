@@ -10,7 +10,7 @@ public class Book : BaseEntity
     public string FilePath { get; set; } = string.Empty;
     public string FileExtension { get; set; } = string.Empty;
     public long FileSize { get; set; }
-    public string Category { get; set; } = "Умумӣ"; // Simple string instead of FK
+    public string Category { get; set; } = "Умумӣ"; 
     public int Year { get; set; }
     public int UploadedByUserId { get; set; }
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;

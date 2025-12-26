@@ -9,28 +9,25 @@ public class UserTestSessionRepository(ApplicationDbContext context) : IUserTest
 {
     public async Task<UserTestSession?> GetActiveByUserAsync(long chatId, CancellationToken ct = default)
     {
-        return await context.UserTestSessions
+        return await context.TestSessions
             .Include(s => s.Subject)
-            .Include(s => s.CurrentQuestion)
-            .ThenInclude(q => q.Option)
             .FirstOrDefaultAsync(s => s.ChatId == chatId && s.IsActive, ct);
     }
     
     public async Task<UserTestSession?> GetByIdAsync(int id, CancellationToken ct = default)
     {
-        return await context.UserTestSessions
+        return await context.TestSessions
             .Include(s => s.Subject)
             .FirstOrDefaultAsync(s => s.Id == id, ct);
-    }
-    
+    }    
     public async Task AddAsync(UserTestSession session, CancellationToken ct = default)
     {
-        await context.UserTestSessions.AddAsync(session, ct);
+        await context.TestSessions.AddAsync(session, ct); 
     }
     
     public void Update(UserTestSession session)
     {
-        context.UserTestSessions.Update(session);
+        context.TestSessions.Update(session); 
     }
     
     public async Task<int> GetUserQuestionCountAsync(long chatId, CancellationToken ct = default)

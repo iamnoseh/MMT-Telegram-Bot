@@ -11,6 +11,7 @@ public interface IUnitOfWork : IDisposable
     IRegistrationSessionRepository RegistrationSessions { get; }
     IUserStateRepository UserStates { get; }
     IUserResponseRepository UserResponses { get; }
+    IDuelRepository Duels { get; }
     
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task BeginTransactionAsync(CancellationToken ct = default);

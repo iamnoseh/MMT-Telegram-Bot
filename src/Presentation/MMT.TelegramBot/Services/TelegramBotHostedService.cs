@@ -211,6 +211,18 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
+        if (text == "📚 Интихоби фан")
+        {
+            await ShowSubjectSelectionAsync(chatId, mediator, ct);
+            return;
+        }
+        
+        if (text == "🎯 Оғози тест")
+        {
+            await HandleStartTestAsync(chatId, mediator, ct);
+            return;
+        }
+        
         if (text == "📚 Китобхона")
         {
             await HandleLibraryAsync(chatId, mediator, ct);
@@ -259,7 +271,14 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
+        // Check if  admin is sending broadcast message
         var userState = await GetUserStateAsync(chatId, mediator, ct);
+        if (userState?.IsPendingBroadcast == true)
+        {
+            await HandleBroadcastMessageAsync(chatId, text, mediator, ct);
+            return;
+        }
+        
         if (userState?.BookUploadStep != null)
         {
             await HandleBookUploadFlowAsync(chatId, text, userState, mediator, ct);
@@ -365,7 +384,7 @@ public class TelegramBotHostedService : BackgroundService
         {
             var result = await mediator.Send(new Application.Features.Users.Queries.GetTopUsers.GetTopUsersQuery
             {
-                Count = 10
+                Count = 30
             }, ct);
             
             if (result.Count == 0)
@@ -376,7 +395,7 @@ public class TelegramBotHostedService : BackgroundService
                 return;
             }
             
-            var message = "🏆 **Беҳтаринҳо** (Топ-10)\n\n";
+            var message = "🏆 **Беҳтаринҳо** (Топ-30)\n\n";
             
             for (int i = 0; i < result.Count; i++)
             {
@@ -460,6 +479,186 @@ public class TelegramBotHostedService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting broadcast mode for {ChatId}", chatId);
+        }
+    }
+    
+    private async Task ShowSubjectSelectionAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        var subjects = await mediator.Send(new Application.Features.Subjects.Queries.GetAllSubjects.GetAllSubjectsQuery(), ct);
+        
+        if (subjects.Count == 0)
+        {
+            await _botClient.SendMessage(chatId, 
+                "Дар айни замон фанҳо дастрас нестанд.", cancellationToken: ct);
+            return;
+        }
+        
+        var keyboard = new ReplyKeyboardMarkup(
+            subjects.Select(s => new KeyboardButton[] 
+            { 
+                new($"📚 {s.Name}") 
+            }).Concat(new[] { new KeyboardButton[] { "⬅️ Бозгашт" } })
+        )
+        {
+            ResizeKeyboard = true
+        };
+        
+        await _botClient.SendMessage(chatId, 
+            "Лутфан, фанро интихоб кунед:", 
+            replyMarkup: keyboard, 
+            cancellationToken: ct);
+    }
+    
+    private async Task HandleBroadcastMessageAsync(long chatId, string message, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var result = await mediator.Send(new Application.Features.Admin.Commands.BroadcastMessage.BroadcastMessageCommand
+            {
+                AdminChatId = chatId,
+                Message = message
+            }, ct);
+            
+            // Clear pending broadcast state
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            
+            if (userState != null)
+            {
+                userState.IsPendingBroadcast = false;
+                unitOfWork.UserStates.Update(userState);
+                await unitOfWork.SaveChangesAsync(ct);
+            }
+            
+            await _botClient.SendMessage(chatId,
+                $"✅ Паём фиристода шуд!\n\n" +
+                $"📊 Ҳамагӣ: {result.TotalUsers}\n" +
+                $"✅ Муваффақ: {result.SuccessCount}\n" +
+                $"❌ Хатогӣ: {result.FailureCount}",
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error broadcasting message from {ChatId}", chatId);
+            await _botClient.SendMessage(chatId,
+                "Хатогӣ ҳангоми фиристодани паём.",
+                cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleStartTestAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            
+            if (userState?.SelectedSubject == null)
+            {
+                await _botClient.SendMessage(chatId,
+                    "Лутфан аввал фанро интихоб кунед!",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var question = await mediator.Send(new Application.Features.Questions.Queries.GetRandomQuestion.GetRandomQuestionQuery
+            {
+                SubjectId = userState.SelectedSubject.Id
+            }, ct);
+            
+            if (question == null)
+            {
+                await _botClient.SendMessage(chatId,
+                    "Саволҳо барои ин фан дастрас нестанд.",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var keyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData($"А) {question.OptionA}", $"answer_{question.Id}_A")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData($"Б) {question.OptionB}", $"answer_{question.Id}_B")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData($"В) {question.OptionC}", $"answer_{question.Id}_C")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData($"Г) {question.OptionD}", $"answer_{question.Id}_D")
+                }
+            });
+            
+            await _botClient.SendMessage(chatId,
+                $"❓ **Савол** ({question.SubjectName})\n\n{question.Text}",
+                replyMarkup: keyboard,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error starting test for {ChatId}", chatId);
+            await _botClient.SendMessage(chatId,
+                "Хатогӣ рух дод.",
+                cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleAnswerCallbackAsync(long chatId, string data, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            // Parse answer data: answer_{questionId}_{selectedAnswer}
+            var parts = data.Split('_');
+            if (parts.Length != 3)
+                return;
+                
+            var questionId = int.Parse(parts[1]);
+            var selectedAnswer = parts[2];
+            
+            // Submit answer
+            var result = await mediator.Send(new Application.Features.Tests.Commands.HandleAnswer.HandleAnswerCommand
+            {
+                ChatId = chatId,
+                QuestionId = questionId,
+                SelectedAnswer = selectedAnswer
+            }, ct);
+            
+            // Show result
+            var emoji = result.IsCorrect ? "✅" : "❌";
+            var message = result.IsCorrect
+                ? $"{emoji} **Дуруст!**\n\n🏆 Холҳо: {result.CurrentScore}\n📊 Ҷавобҳо: {result.QuestionsAnswered}"
+                : $"{emoji} **Нодуруст!**\n\n📝 Ҷавоби дуруст: {result.CorrectAnswer}\n🏆 Холҳо: {result.CurrentScore}\n📊 Ҷавобҳо: {result.QuestionsAnswered}";
+            
+            await _botClient.SendMessage(chatId,
+                message,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+            
+            // Show next question after 2 seconds
+            if (!result.TestCompleted)
+            {
+                await Task.Delay(1000, ct);
+                await HandleStartTestAsync(chatId, mediator, ct);
+            }
+            else
+            {
+                await _botClient.SendMessage(chatId,
+                    $"🎉 **Тест тамом шуд!**\n\n🏆 Холҳои ниҳоӣ: {result.CurrentScore}",
+                    parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                    cancellationToken: ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling answer callback for {ChatId}", chatId);
         }
     }
     
@@ -616,33 +815,6 @@ public class TelegramBotHostedService : BackgroundService
         await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
     }
     
-    private async Task ShowSubjectSelectionAsync(long chatId, IMediator mediator, CancellationToken ct)
-    {
-        var query = new Application.Features.Subjects.Queries.GetAllSubjects.GetAllSubjectsQuery();
-        var subjects = await mediator.Send(query, ct);
-        
-        if (!subjects.Any())
-        {
-            await _botClient.SendMessage(chatId, 
-                "Дар айни замон фанҳо дастрас нестанд.", cancellationToken: ct);
-            return;
-        }
-        
-        var keyboard = new ReplyKeyboardMarkup(
-            subjects.Select(s => new KeyboardButton[] 
-            { 
-                new($"📚 {s.Name}") 
-            }).Concat(new[] { new KeyboardButton[] { "⬅️ Бозгашт" } })
-        )
-        {
-            ResizeKeyboard = true
-        };
-        
-        await _botClient.SendMessage(chatId, 
-            "Лутфан, фанро интихоб кунед:", 
-            replyMarkup: keyboard, 
-            cancellationToken: ct);
-    }
     
     private async Task HandleSubjectSelectionAsync(long chatId, string text, IMediator mediator, CancellationToken ct)
     {
@@ -725,7 +897,7 @@ public class TelegramBotHostedService : BackgroundService
     {
         var buttons = new List<KeyboardButton[]>
         {
-            new KeyboardButton[] { "🎯 Оғози тест", "📊 Натиҷаҳо" },
+            new KeyboardButton[] { "📚 Интихоби фан", "🎯 Оғози тест" },
             new KeyboardButton[] { "👤 Профил", "🏆 Беҳтаринҳо" },
             new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" }
         };
@@ -760,7 +932,7 @@ public class TelegramBotHostedService : BackgroundService
     {
         return new ReplyKeyboardMarkup(new[]
         {
-            new KeyboardButton[] { "🎯 Оғози тест", "📊 Натиҷаҳо" },
+            new KeyboardButton[] { "📚 Интихоби фан", "🎯 Оғози тест" },
             new KeyboardButton[] { "👤 Профил", "🏆 Беҳтаринҳо" },
             new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" },
             new KeyboardButton[] { "📤 Боргузории китоб" } 

@@ -9,15 +9,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<User> Users => Set<User>();
     public DbSet<Question> Questions => Set<Question>();
     public DbSet<Subject> Subjects => Set<Subject>();
-    public DbSet<Book> Books => Set<Book>();
-    public DbSet<BookCategory> BookCategories => Set<BookCategory>();
-    public DbSet<Option> Options => Set<Option>();
     public DbSet<UserResponse> UserResponses => Set<UserResponse>();
-    public DbSet<DuelGame> DuelGames => Set<DuelGame>();
+    public DbSet<Book> Books => Set<Book>();
     public DbSet<Invitation> Invitations => Set<Invitation>();
-    public DbSet<UserTestSession> UserTestSessions => Set<UserTestSession>();
+    public DbSet<UserTestSession> TestSessions => Set<UserTestSession>();
     public DbSet<RegistrationSession> RegistrationSessions => Set<RegistrationSession>();
     public DbSet<UserState> UserStates => Set<UserState>();
+    public DbSet<Duel> Duels => Set<Duel>();
+    public DbSet<DuelAnswer> DuelAnswers => Set<DuelAnswer>();
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

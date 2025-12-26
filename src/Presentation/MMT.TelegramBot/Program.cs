@@ -2,6 +2,7 @@ using MMT.Application;
 using MMT.Persistence;
 using MMT.TelegramBot.Services;
 using Microsoft.EntityFrameworkCore;
+using MMT.Domain.Entities;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,19 +63,19 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
             Log.Information("Seeding subjects...");
             var subjects = new[]
             {
-                new MMT.Domain.Entities.Subject { Name = "Химия" },
-                new MMT.Domain.Entities.Subject { Name = "Биология" },
-                new MMT.Domain.Entities.Subject { Name = "Забони тоҷикӣ" },
-                new MMT.Domain.Entities.Subject { Name = "English" },
-                new MMT.Domain.Entities.Subject { Name = "Таърих" },
-                new MMT.Domain.Entities.Subject { Name = "География" },
-                new MMT.Domain.Entities.Subject { Name = "Адабиёти тоҷик" },
-                new MMT.Domain.Entities.Subject { Name = "Физика" },
-                new MMT.Domain.Entities.Subject { Name = "Забони русӣ" },
-                new MMT.Domain.Entities.Subject { Name = "Математика" },
-                new MMT.Domain.Entities.Subject { Name = "Анатомия" },
-                new MMT.Domain.Entities.Subject { Name = "Ҳуқуқи инсон" },
-                new MMT.Domain.Entities.Subject { Name = "Генетика" }
+                new Subject { Name = "Химия" },
+                new Subject { Name = "Биология" },
+                new Subject { Name = "Забони тоҷикӣ" },
+                new Subject { Name = "English" },
+                new Subject { Name = "Таърих" },
+                new Subject { Name = "География" },
+                new Subject { Name = "Адабиёти тоҷик" },
+                new Subject { Name = "Физика" },
+                new Subject { Name = "Забони русӣ" },
+                new Subject { Name = "Математика" },
+                new Subject { Name = "Анатомия" },
+                new Subject { Name = "Ҳуқуқи инсон" },
+                new Subject { Name = "Генетика" }
             };
             
             await context.Subjects.AddRangeAsync(subjects);
@@ -100,18 +101,6 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
         else if (superAdmin != null)
         {
             Log.Information("Super admin already configured");
-        }
-        
-        if (!await context.BookCategories.AnyAsync())
-        {
-            Log.Information("Creating default book category...");
-            var defaultCategory = new MMT.Domain.Entities.BookCategory
-            {
-                Name = "Умумӣ",
-            };
-            await context.BookCategories.AddAsync(defaultCategory);
-            await context.SaveChangesAsync();
-            Log.Information("Default book category created");
         }
         
         Log.Information("Database initialized successfully");
