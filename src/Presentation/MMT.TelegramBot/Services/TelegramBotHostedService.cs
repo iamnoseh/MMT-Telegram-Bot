@@ -497,7 +497,7 @@ public class TelegramBotHostedService : BackgroundService
             subjects.Select(s => new KeyboardButton[] 
             { 
                 new($"📚 {s.Name}") 
-            }).Concat(new[] { new KeyboardButton[] { "⬅️ Бозгашт" } })
+            }).Concat([["⬅️ Бозгашт"]])
         )
         {
             ResizeKeyboard = true
@@ -576,25 +576,20 @@ public class TelegramBotHostedService : BackgroundService
                 return;
             }
             
-            var keyboard = new InlineKeyboardMarkup(new[]
-            {
-                new[]
-                {
+            var keyboard = new InlineKeyboardMarkup([
+                [
                     InlineKeyboardButton.WithCallbackData($"А) {question.OptionA}", $"answer_{question.Id}_A")
-                },
-                new[]
-                {
+                ],
+                [
                     InlineKeyboardButton.WithCallbackData($"Б) {question.OptionB}", $"answer_{question.Id}_B")
-                },
-                new[]
-                {
+                ],
+                [
                     InlineKeyboardButton.WithCallbackData($"В) {question.OptionC}", $"answer_{question.Id}_C")
-                },
-                new[]
-                {
+                ],
+                [
                     InlineKeyboardButton.WithCallbackData($"Г) {question.OptionD}", $"answer_{question.Id}_D")
-                }
-            });
+                ]
+            ]);
             
             await _botClient.SendMessage(chatId,
                 $"❓ **Савол** ({question.SubjectName})\n\n{question.Text}",
@@ -902,7 +897,6 @@ public class TelegramBotHostedService : BackgroundService
             new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" }
         };
         
-        // Check if user is admin
         var user = await mediator.Send(new Application.Features.Users.Queries.GetUserProfile.GetUserProfileQuery
         {
             ChatId = chatId
