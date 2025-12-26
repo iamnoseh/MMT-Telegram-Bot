@@ -23,6 +23,10 @@ public class UserState : BaseEntity
     public int? BookCategoryId { get; set; }
     public string? BookCategory { get; set; }
     
+    // Question Import State
+    public QuestionImportStep? QuestionImportStep { get; set; }
+    public int? ImportSubjectId { get; set; }
+    
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
     
     public Subject? SelectedSubject { get; set; }
@@ -58,4 +62,10 @@ public enum BookUploadStep
     Year = 3,
     Category = 4,
     File = 5
+}
+
+public enum QuestionImportStep
+{
+    SelectingSubject = 1,
+    UploadingFile = 2
 }

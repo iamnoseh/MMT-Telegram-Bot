@@ -15,6 +15,7 @@ public static class DependencyInjection
         });
         
         services.AddValidatorsFromAssembly(assembly);
+        services.AddScoped<Common.Interfaces.Services.IDocumentParserService, Services.DocumentParserService>();
         
         return services;
     }

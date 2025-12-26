@@ -10,7 +10,7 @@ public class GetRandomQuestionQueryHandler(IUnitOfWork unitOfWork)
     {
         var question = await unitOfWork.Questions.GetRandomBySubjectAsync(request.SubjectId, ct);
         
-        if (question == null || question.Option == null)
+        if (question == null)
             return null;
         
         var subject = await unitOfWork.Subjects.GetByIdAsync(question.SubjectId, ct);

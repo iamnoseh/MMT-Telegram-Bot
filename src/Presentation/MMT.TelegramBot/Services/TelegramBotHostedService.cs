@@ -265,6 +265,12 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
+        if (text == "📥 Дохил кардани саволҳо")
+        {
+            await HandleQuestionImportRequestAsync(chatId, mediator, ct);
+            return;
+        }
+        
         if (text.StartsWith("/book"))
         {
             await HandleBookDownloadAsync(chatId, text, mediator, ct);

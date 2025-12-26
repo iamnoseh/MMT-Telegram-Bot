@@ -32,6 +32,14 @@ public class QuestionRepository(ApplicationDbContext context) : IQuestionReposit
             .ToListAsync(ct);
     }
     
+    public async Task<bool> ExistsAsync(int subjectId, string questionText, CancellationToken ct = default)
+    {
+        return await context.Questions
+            .AnyAsync(q => q.SubjectId == subjectId 
+                        && q.QuestionText.Trim().ToLower() == questionText.Trim().ToLower(), 
+                ct);
+    }
+    
     public async Task AddAsync(Question question, CancellationToken ct = default)
     {
         await context.Questions.AddAsync(question, ct);
