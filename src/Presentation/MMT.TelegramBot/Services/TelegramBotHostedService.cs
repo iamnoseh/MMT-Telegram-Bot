@@ -194,6 +194,13 @@ public class TelegramBotHostedService : BackgroundService
     
     private async Task HandleTextMessageAsync(long chatId, string text, IMediator mediator, CancellationToken ct)
     {
+        // Handle back button universally
+        if (text == "⬅️ Бозгашт" || text == "⬅️ Бекор кардан")
+        {
+            await HandleBackButtonAsync(chatId, mediator, ct);
+            return;
+        }
+        
         var session = await GetRegistrationSessionAsync(chatId, mediator, ct);
         
         if (session != null)
@@ -679,6 +686,164 @@ public class TelegramBotHostedService : BackgroundService
         }
     }
     
+    private async Task HandleQuestionImportRequestAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var subjects = await mediator.Send(new Application.Features.Subjects.Queries.GetAllSubjects.GetAllSubjectsQuery(), ct);
+            
+            if (subjects.Count == 0)
+            {
+                await _botClient.SendMessage(chatId,
+                    "Ҳоло ҳеҷ фане дар система нест.",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var keyboard = new InlineKeyboardMarkup(
+                subjects.Select(s => new[]
+                {
+                    InlineKeyboardButton.WithCallbackData(s.Name, $"import_subject_{s.Id}")
+                })
+            );
+            
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            
+            if (userState == null)
+            {
+                userState = new Domain.Entities.UserState { ChatId = chatId };
+                await unitOfWork.UserStates.AddAsync(userState, ct);
+            }
+            
+            userState.QuestionImportStep = Domain.Entities.QuestionImportStep.SelectingSubject;
+            unitOfWork.UserStates.Update(userState);
+            await unitOfWork.SaveChangesAsync(ct);
+            
+            await _botClient.SendMessage(chatId,
+                "📥 **Дохил кардани саволҳо**\n\nФанро интихоб кунед:",
+                replyMarkup: keyboard,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling question import request for {ChatId}", chatId);
+        }
+    }
+    
+    private async Task HandleQuestionImportFlowAsync(long chatId, Telegram.Bot.Types.Message message, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            
+            if (userState?.QuestionImportStep != Domain.Entities.QuestionImportStep.UploadingFile)
+                return;
+            
+            if (message.Document == null)
+            {
+                await _botClient.SendMessage(chatId,
+                    "❌ Лутфан, файл ирсол кунед (.pdf, .docx, .doc)",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var file = message.Document;
+            var extension = Path.GetExtension(file.FileName ?? "").ToLower();
+            
+            if (extension != ".pdf" && extension != ".docx" && extension != ".doc")
+            {
+                await _botClient.SendMessage(chatId,
+                    "❌ Формати дастгарӣ нашуда. Танҳо .pdf, .docx, .doc",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var processingMsg = await _botClient.SendMessage(chatId,
+                "⏳ Дар ҳоли коркард... Лутфан интизор шавед.",
+                cancellationToken: ct);
+            
+            // Download file
+            var fileInfo = await _botClient.GetFile(file.FileId, ct);
+            using var fileStream = new MemoryStream();
+            await _botClient.DownloadFile(fileInfo.FilePath!, fileStream, ct);
+            var fileContent = fileStream.ToArray();
+            
+            // Import questions
+            var result = await mediator.Send(new Application.Features.Questions.Commands.ImportQuestions.ImportQuestionsCommand
+            {
+                SubjectId = userState.ImportSubjectId!.Value,
+                FileContent = fileContent,
+                FileName = file.FileName ?? "file",
+                FileExtension = extension
+            }, ct);
+            
+            // Clear state
+            userState.QuestionImportStep = null;
+            userState.ImportSubjectId = null;
+            unitOfWork.UserStates.Update(userState);
+            await unitOfWork.SaveChangesAsync(ct);
+            
+            // Show result
+            var resultMessage = $"📊 **Натиҷа:**\n\n" +
+                                $"✅ Саволҳои нав: {result.SuccessfullyAdded}\n" +
+                                $"🔄 Такрорӣ: {result.Duplicates}\n" +
+                                $"❌ Хатогӣ: {result.Errors}\n\n" +
+                                $"📝 Ҷамъ: {result.TotalParsed} савол парс шуд";
+            
+            if (result.ErrorMessages.Any())
+            {
+                resultMessage += $"\n\n⚠️ Хатогиҳо:\n{string.Join("\n", result.ErrorMessages.Take(5))}";
+            }
+            
+            await _botClient.EditMessageText(chatId, processingMsg.MessageId,
+                resultMessage,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling question import flow for {ChatId}", chatId);
+            await _botClient.SendMessage(chatId,
+                "❌ Хатогӣ ҳангоми коркарди файл.",
+                cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleImportSubjectCallbackAsync(long chatId, string data, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var parts = data.Split('_');
+            if (parts.Length < 3) return;
+            
+            var subjectId = int.Parse(parts[2]);
+            
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            
+            if (userState == null) return;
+            
+            userState.QuestionImportStep = Domain.Entities.QuestionImportStep.UploadingFile;
+            userState.ImportSubjectId = subjectId;
+            unitOfWork.UserStates.Update(userState);
+            await unitOfWork.SaveChangesAsync(ct);
+            
+            await _botClient.SendMessage(chatId,
+                "📄 Файли саволҳоро ирсол кунед (.pdf, .docx, .doc):",
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling import subject callback for {ChatId}: {Data}", chatId, data);
+        }
+    }
+    
     private async Task HandleStartTestAsync(long chatId, IMediator mediator, CancellationToken ct)
     {
         try
@@ -1044,7 +1209,7 @@ public class TelegramBotHostedService : BackgroundService
             if (fullUser?.IsAdmin == true)
             {
                 buttons.Add(new KeyboardButton[] { "📊 Статистика", "📢 Паём фиристодан" });
-                buttons.Add(new KeyboardButton[] { "📤 Боргузории китоб" });
+                buttons.Add(new KeyboardButton[] { "📥 Дохил кардани саволҳо", "📤 Боргузории китоб" });
             }
         }
         
@@ -1188,12 +1353,20 @@ public class TelegramBotHostedService : BackgroundService
         _logger.LogInformation("Telegram Bot Service stopping");
         await base.StopAsync(cancellationToken);
     }
-      private async Task HandleDocumentAsync(Message message, IMediator mediator, CancellationToken ct)
+    private async Task HandleDocumentAsync(Message message, IMediator mediator, CancellationToken ct)
     {
         var chatId = message.Chat.Id;
         
         var userState = await GetUserStateAsync(chatId, mediator, ct);
         
+        
+        if (userState?.QuestionImportStep == Domain.Entities.QuestionImportStep.UploadingFile)
+        {
+            await HandleQuestionImportFlowAsync(chatId, message, mediator, ct);
+            return;
+        }
+        
+        // Check if user is uploading a book
         if (userState?.BookUploadStep == Domain.Entities.BookUploadStep.File)
         {
             var loadingMessage = await _botClient.SendMessage(chatId,
@@ -1273,6 +1446,44 @@ public class TelegramBotHostedService : BackgroundService
             await _botClient.SendMessage(chatId,
                 "Лутфан аввал боргузории китобро оғоз кунед: 📤 Боргузории китоб",
                 cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleBackButtonAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
+            
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            if (userState != null)
+            {
+                userState.BookUploadStep = null;
+                userState.BookTitle = null;
+                userState.BookDescription = null;
+                userState.BookYear = null;
+                userState.BookCategory = null;
+                userState.QuestionImportStep = null;
+                userState.ImportSubjectId = null;
+                userState.IsPendingBroadcast = false;
+                userState.IsPendingNameChange = false;
+                
+                unitOfWork.UserStates.Update(userState);
+                await unitOfWork.SaveChangesAsync(ct);
+            }
+            
+            var user = await unitOfWork.Users.GetByChatIdAsync(chatId, ct);
+            var keyboard = GetMainMenuKeyboard();
+            
+            await _botClient.SendMessage(chatId,
+                "🏠 Менюи асосӣ",
+                replyMarkup: keyboard,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling back button for {ChatId}", chatId);
         }
     }
 }
