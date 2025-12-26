@@ -247,6 +247,12 @@ public class TelegramBotHostedService : BackgroundService
             return;
         }
         
+        if (text == "⚔️ Дуэл")
+        {
+            await HandleDuelRequestAsync(chatId, mediator, ct);
+            return;
+        }
+        
         if (text == "📊 Статистика")
         {
             await HandleStatisticsAsync(chatId, mediator, ct);
@@ -544,6 +550,126 @@ public class TelegramBotHostedService : BackgroundService
             await _botClient.SendMessage(chatId,
                 "Хатогӣ ҳангоми фиристодани паём.",
                 cancellationToken: ct);
+        }
+    }
+    
+    private async Task HandleDuelRequestAsync(long chatId, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var topUsers = await mediator.Send(new Application.Features.Users.Queries.GetTopUsers.GetTopUsersQuery
+            {
+                Count = 10
+            }, ct);
+            
+            if (topUsers.Count == 0)
+            {
+                await _botClient.SendMessage(chatId,
+                    "Ҳоло ҳеҷ корбаре барои дуэл мавҷуд нест.",
+                    cancellationToken: ct);
+                return;
+            }
+            
+            var keyboard = new InlineKeyboardMarkup(
+                topUsers.Select(u => new[]
+                {
+                    InlineKeyboardButton.WithCallbackData($"{u.Name} - {u.Score} ⭐", $"duel_challenge_{u.ChatId}")
+                })
+            );
+            
+            await _botClient.SendMessage(chatId,
+                "⚔️ **Дуэл**\n\nҲарифро интихоб кунед:",
+                replyMarkup: keyboard,
+                parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling duel request for {ChatId}", chatId);
+        }
+    }
+    
+    private async Task HandleDuelCallbackAsync(long chatId, string data, IMediator mediator, CancellationToken ct)
+    {
+        try
+        {
+            var parts = data.Split('_');
+            
+            if (parts[1] == "challenge" && parts.Length == 3)
+            {
+                var opponentChatId = long.Parse(parts[2]);
+                
+                var subjects = await mediator.Send(new Application.Features.Subjects.Queries.GetAllSubjects.GetAllSubjectsQuery(), ct);
+                var keyboard = new InlineKeyboardMarkup(
+                    subjects.Select(s => new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData(s.Name, $"duel_subject_{opponentChatId}_{s.Id}")
+                    })
+                );
+                
+                await _botClient.SendMessage(chatId,
+                    "Фанро интихоб кунед:",
+                    replyMarkup: keyboard,
+                    cancellationToken: ct);
+            }
+            else if (parts[1] == "subject" && parts.Length == 4)
+            {
+                var opponentChatId = long.Parse(parts[2]);
+                var subjectId = int.Parse(parts[3]);
+                
+                var result = await mediator.Send(new Application.Features.Duels.Commands.CreateDuel.CreateDuelCommand
+                {
+                    ChallengerChatId = chatId,
+                    OpponentChatId = opponentChatId,
+                    SubjectId = subjectId
+                }, ct);
+                
+                await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
+                
+                if (result.Success)
+                {
+                    var challenger = await mediator.Send(new Application.Features.Users.Queries.GetUserProfile.GetUserProfileQuery
+                    {
+                        ChatId = chatId
+                    }, ct);
+                    
+                    var keyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new[]
+                        {
+                            InlineKeyboardButton.WithCallbackData("✅ Қабул", $"duel_accept_{result.DuelId}"),
+                            InlineKeyboardButton.WithCallbackData("❌ Рад", $"duel_reject_{result.DuelId}")
+                        }
+                    });
+                    
+                    await _botClient.SendMessage(opponentChatId,
+                        $"⚔️ **Даъват ба дуэл!**\n\n{challenger!.Name} шуморо ба дуэл даъват кард!",
+                        replyMarkup: keyboard,
+                        parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                        cancellationToken: ct);
+                }
+            }
+            else if (parts[1] == "accept" && parts.Length == 3)
+            {
+                var duelId = int.Parse(parts[2]);
+                var result = await mediator.Send(new Application.Features.Duels.Commands.AcceptDuel.AcceptDuelCommand
+                {
+                    DuelId = duelId,
+                    OpponentChatId = chatId
+                }, ct);
+                
+                await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
+            }
+            else if (parts[1] == "reject")
+            {
+                await _botClient.SendMessage(chatId,
+                    "Шумо даъватро рад кардед.",
+                    cancellationToken: ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling duel callback for {ChatId}: {Data}", chatId, data);
         }
     }
     
@@ -928,6 +1054,7 @@ public class TelegramBotHostedService : BackgroundService
         {
             new KeyboardButton[] { "📚 Интихоби фан", "🎯 Оғози тест" },
             new KeyboardButton[] { "👤 Профил", "🏆 Беҳтаринҳо" },
+            new KeyboardButton[] { "⚔️ Дуэл", "📊 Натиҷаҳо" },
             new KeyboardButton[] { "📚 Китобхона", "👥 Даъвати дӯстон" },
             new KeyboardButton[] { "📤 Боргузории китоб" } 
         })
