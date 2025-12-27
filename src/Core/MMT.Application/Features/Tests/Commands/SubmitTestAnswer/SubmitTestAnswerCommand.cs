@@ -14,6 +14,7 @@ public record SubmitTestAnswerResult
 {
     public bool Success { get; init; }
     public bool IsCorrect { get; init; }
+    public string CorrectAnswer { get; init; } = string.Empty;
     public int NewScore { get; init; }
     public int QuestionNumber { get; init; }
     public bool TestCompleted { get; init; }

@@ -97,6 +97,7 @@ public class SubmitTestAnswerCommandHandler(
         {
             Success = true,
             IsCorrect = isCorrect,
+            CorrectAnswer = question.Option.CorrectAnswer,
             NewScore = session.Score,
             QuestionNumber = session.CurrentQuestionNumber,
             TestCompleted = testCompleted,

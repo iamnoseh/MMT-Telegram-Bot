@@ -98,6 +98,10 @@ public class TelegramBotHostedService : BackgroundService
                 await HandleBookDownloadAsync(chatId, $"/book{bookId}", mediator, ct);
             }
         }
+        else if (data?.StartsWith("import_subject_") == true)
+        {
+            await HandleImportSubjectCallbackAsync(chatId, data, mediator, ct);
+        }
     }
     
     private async Task HandleMessageAsync(Message message, IMediator mediator, CancellationToken ct)
@@ -552,11 +556,37 @@ public class TelegramBotHostedService : BackgroundService
                 Message = message
             }, ct);
             
-            // Clear pending broadcast state
+            if (!result.Success)
+            {
+                await _botClient.SendMessage(chatId, result.Message, cancellationToken: ct);
+                return;
+            }
+            
+           
             using var scope = _scopeFactory.CreateScope();
             var unitOfWork = scope.ServiceProvider.GetRequiredService<Application.Common.Interfaces.Repositories.IUnitOfWork>();
-            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
+            var users = await unitOfWork.Users.GetAllAsync(ct);
             
+            var successCount = 0;
+            var failureCount = 0;
+            
+            foreach (var user in users)
+            {
+                try
+                {
+                    await _botClient.SendMessage(user.ChatId, message, cancellationToken: ct);
+                    successCount++;
+                    await Task.Delay(50, ct); // Rate limiting
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send broadcast to {ChatId}", user.ChatId);
+                    failureCount++;
+                }
+            }
+            
+            // Clear state
+            var userState = await unitOfWork.UserStates.GetByChatIdAsync(chatId, ct);
             if (userState != null)
             {
                 userState.IsPendingBroadcast = false;
@@ -566,9 +596,9 @@ public class TelegramBotHostedService : BackgroundService
             
             await _botClient.SendMessage(chatId,
                 $"✅ Паём фиристода шуд!\n\n" +
-                $"📊 Ҳамагӣ: {result.TotalUsers}\n" +
-                $"✅ Муваффақ: {result.SuccessCount}\n" +
-                $"❌ Хатогӣ: {result.FailureCount}",
+                $"📊 Ҳамагӣ: {users.Count}\n" +
+                $"✅ Муваффақ: {successCount}\n" +
+                $"❌ Хатогӣ: {failureCount}",
                 cancellationToken: ct);
         }
         catch (Exception ex)
@@ -704,6 +734,7 @@ public class TelegramBotHostedService : BackgroundService
             {
                 userState = new Domain.Entities.UserState { ChatId = chatId };
                 await unitOfWork.UserStates.AddAsync(userState, ct);
+                await unitOfWork.SaveChangesAsync(ct); 
             }
             
             userState.QuestionImportStep = Domain.Entities.QuestionImportStep.SelectingSubject;
