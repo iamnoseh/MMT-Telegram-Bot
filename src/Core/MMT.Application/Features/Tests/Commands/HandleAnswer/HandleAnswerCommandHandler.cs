@@ -56,7 +56,7 @@ public class HandleAnswerCommandHandler(
             var user = await unitOfWork.Users.GetByChatIdAsync(request.ChatId, ct);
             if (user != null)
             {
-                user.Score += userState.TestScore;
+                user.AddQuizPoints(userState.TestScore);
                 unitOfWork.Users.Update(user);
             }
             
