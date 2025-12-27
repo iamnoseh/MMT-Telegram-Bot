@@ -12,6 +12,9 @@ public record UserProfileDto
     public string Name { get; init; } = string.Empty;
     public string City { get; init; } = string.Empty;
     public int Score { get; init; }
+    public int QuizPoints { get; init; }
+    public int ReferralPoints { get; init; }
+    public int ReferralCount { get; init; }
     public int Level { get; init; }
     public int Rank { get; init; }
     public string PhoneNumber { get; init; } = string.Empty;

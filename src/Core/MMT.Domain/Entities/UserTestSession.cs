@@ -13,6 +13,8 @@ public class UserTestSession : BaseEntity
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
     public DateTime? LastQuestionSentAt { get; set; }
+    public DateTime? QuestionStartTime { get; set; }
+    public bool TimeExpired { get; set; } = false;
     
     public Subject Subject { get; set; } = null!;
     public Question CurrentQuestion { get; set; } = null!;

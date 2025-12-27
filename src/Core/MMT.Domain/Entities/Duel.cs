@@ -11,6 +11,9 @@ public class Duel
     public Subject Subject { get; set; } = null!;
     public string DuelCode { get; set; } = string.Empty;
     public DuelStatus Status { get; set; }
+    public int QuestionCount { get; set; } = 10;
+    public int ChallengerScore { get; set; } = 0;
+    public int OpponentScore { get; set; } = 0;
     public int? WinnerId { get; set; }
     public User? Winner { get; set; }
     public DateTime CreatedAt { get; set; }

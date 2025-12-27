@@ -63,16 +63,16 @@ static async Task InitializeDatabaseAsync(IServiceProvider services)
             Log.Information("Seeding subjects...");
             var subjects = new[]
             {
-                new Subject { Name = "Химия" },
+                new Subject { Name = "Химия", HasTimer = false, TimerSeconds = null },
                 new Subject { Name = "Биология" },
                 new Subject { Name = "Забони тоҷикӣ" },
                 new Subject { Name = "English" },
                 new Subject { Name = "Таърих" },
                 new Subject { Name = "География" },
                 new Subject { Name = "Адабиёти тоҷик" },
-                new Subject { Name = "Физика" },
+                new Subject { Name = "Физика", HasTimer = false, TimerSeconds = null },
                 new Subject { Name = "Забони русӣ" },
-                new Subject { Name = "Математика" },
+                new Subject { Name = "Математика", HasTimer = false, TimerSeconds = null },
                 new Subject { Name = "Анатомия" },
                 new Subject { Name = "Ҳуқуқи инсон" },
                 new Subject { Name = "Генетика" }

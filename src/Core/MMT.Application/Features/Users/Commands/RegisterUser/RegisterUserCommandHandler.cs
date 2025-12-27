@@ -68,6 +68,7 @@ public class RegisterUserCommandHandler(
                     {
                         user.ReferredByUserId = referrer.Id;
                         referrer.ReferralCount++;
+                        referrer.AddReferralPoints(30); // Award 30 points for successful referral
                         
                         unitOfWork.Users.Update(user);
                         unitOfWork.Users.Update(referrer);

@@ -10,6 +10,8 @@ public class User : BaseEntity
     public string PhoneNumber { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
     public int Score { get; set; }
+    public int ReferralPoints { get; set; } = 0;
+    public int QuizPoints { get; set; } = 0;
     public bool IsLeft { get; set; } = false;
     public bool IsAdmin { get; set; } = false;
     public bool HasChangedName { get; set; } = false;
@@ -43,6 +45,20 @@ public class User : BaseEntity
     public void MarkAsLeft()
     {
         IsLeft = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+    
+    public void AddReferralPoints(int points)
+    {
+        ReferralPoints += points;
+        Score += points;
+        UpdatedAt = DateTime.UtcNow;
+    }
+    
+    public void AddQuizPoints(int points)
+    {
+        QuizPoints += points;
+        Score += points;
         UpdatedAt = DateTime.UtcNow;
     }
 }

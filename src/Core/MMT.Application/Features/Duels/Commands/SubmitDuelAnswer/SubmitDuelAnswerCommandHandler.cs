@@ -10,7 +10,7 @@ public class SubmitDuelAnswerCommandHandler(
     ILogger<SubmitDuelAnswerCommandHandler> logger)
     : IRequestHandler<SubmitDuelAnswerCommand, SubmitDuelAnswerResult>
 {
-    private const int QuestionsPerDuel = 5;
+    private const int QuestionsPerDuel = 10;
 
     public async Task<SubmitDuelAnswerResult> Handle(SubmitDuelAnswerCommand request, CancellationToken ct)
     {
@@ -57,6 +57,30 @@ public class SubmitDuelAnswerCommandHandler(
 
             var isCorrect = question.Option.CorrectAnswer.Equals(request.SelectedAnswer, StringComparison.OrdinalIgnoreCase);
 
+            // Calculate points based on answer speed
+            var opponentAnswer = duel.Answers.FirstOrDefault(a => a.QuestionId == question.Id && a.UserId != user.Id);
+            int points = 0;
+            TimeSpan? timeTaken = null;
+            
+            if (isCorrect)
+            {
+                if (opponentAnswer == null)
+                {
+                    // First to answer: 11 points (faster)
+                    points = 11;
+                }
+                else if (opponentAnswer.IsCorrect)
+                {
+                    // Both correct, this one is slower: 10 points
+                    points = 10;
+                }
+                else
+                {
+                    // Opponent was wrong: 10 points (speed doesn't matter)
+                    points = 10;
+                }
+            }
+            
             var duelAnswer = new DuelAnswer
             {
                 DuelId = duel.Id,
@@ -64,14 +88,26 @@ public class SubmitDuelAnswerCommandHandler(
                 QuestionId = question.Id,
                 SelectedAnswer = request.SelectedAnswer,
                 IsCorrect = isCorrect,
-                AnsweredAt = DateTime.UtcNow
+                AnsweredAt = DateTime.UtcNow,
+                AnswerTime = DateTime.UtcNow,
+                Points = points,
+                TimeTaken = timeTaken
             };
 
+            duel.Answers.Add(duelAnswer);
+            
+            // Update duel scores
+            if (user.Id == duel.ChallengerId)
+                duel.ChallengerScore += points;
+            else
+                duel.OpponentScore += points;
+                
             await unitOfWork.SaveChangesAsync(ct);
 
             
-            var challengerScore = duel.Answers.Count(a => a.UserId == duel.ChallengerId && a.IsCorrect);
-            var opponentScore = duel.Answers.Count(a => a.UserId == duel.OpponentId && a.IsCorrect);
+            // Use points-based scores
+            var challengerScore = duel.ChallengerScore;
+            var opponentScore = duel.OpponentScore;
             
             var userScore = user.Id == duel.ChallengerId ? challengerScore : opponentScore;
             var otherScore = user.Id == duel.ChallengerId ? opponentScore : challengerScore;
@@ -92,6 +128,19 @@ public class SubmitDuelAnswerCommandHandler(
                 duel.Status = DuelStatus.Completed;
                 duel.WinnerId = winnerId;
                 duel.CompletedAt = DateTime.UtcNow;
+                
+                // Award 20 points ONLY to winner in QuizPoints (not total score)
+                if (winnerId.HasValue)
+                {
+                    var winner = await unitOfWork.Users.GetByIdAsync(winnerId.Value, ct);
+                    if (winner != null)
+                    {
+                        winner.AddQuizPoints(20);
+                        unitOfWork.Users.Update(winner);
+                        logger.LogInformation("Winner {WinnerId} awarded 20 quiz points", winnerId.Value);
+                    }
+                }
+                
                 unitOfWork.Duels.Update(duel);
                 await unitOfWork.SaveChangesAsync(ct);
             }

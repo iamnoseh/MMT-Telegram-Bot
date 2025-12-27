@@ -12,4 +12,7 @@ public class DuelAnswer
     public string SelectedAnswer { get; set; } = string.Empty;
     public bool IsCorrect { get; set; }
     public DateTime AnsweredAt { get; set; }
+    public DateTime? AnswerTime { get; set; }
+    public int Points { get; set; } = 0;
+    public TimeSpan? TimeTaken { get; set; }
 }
