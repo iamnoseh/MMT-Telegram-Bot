@@ -90,7 +90,11 @@ public class TelegramBotHostedService : BackgroundService
         
         await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: ct);
         
-        if (data?.StartsWith("download_book_") == true)
+        if (data?.StartsWith("answer_") == true)
+        {
+            await HandleAnswerCallbackAsync(chatId, data, mediator, ct);
+        }
+        else if (data?.StartsWith("download_book_") == true)
         {
             var bookIdStr = data.Replace("download_book_", "");
             if (int.TryParse(bookIdStr, out var bookId))
